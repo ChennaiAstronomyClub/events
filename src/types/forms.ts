@@ -28,6 +28,8 @@ export interface FormFieldConfig {
   skipForVerified?: boolean;
   /** If true, offer to save this field back to the user's Discourse profile on submit */
   saveToProfile?: boolean;
+  /** If true, field is used only for UI flow control and is not submitted */
+  uiOnly?: boolean;
   /** If true, field spans full width */
   fullWidth?: boolean;
   /** Show this field only when another field has a specific value. e.g. { field: "canBringCar", value: "yes" } */

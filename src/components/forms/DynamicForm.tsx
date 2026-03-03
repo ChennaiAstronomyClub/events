@@ -56,9 +56,10 @@ export function getDiscourseValue(user: DiscourseUser, path: string): string {
 /** Build a Zod object schema dynamically from an array of field configs. */
 function buildZodSchema(fields: FormFieldConfig[]) {
   const shape: Record<string, z.ZodTypeAny> = {};
+  const conditionalRequired = fields.filter((f) => f.required && f.showWhen);
 
   for (const field of fields) {
-    // Conditional fields are always optional — they may not be visible
+    // Conditional fields may be hidden; we validate them separately when visible
     const isConditional = !!field.showWhen;
     const isRequired = field.required && !isConditional;
 
@@ -107,7 +108,35 @@ function buildZodSchema(fields: FormFieldConfig[]) {
     }
   }
 
-  return z.object(shape);
+  return z.object(shape).superRefine((data, ctx) => {
+    for (const field of conditionalRequired) {
+      const condition = field.showWhen;
+      if (!condition) continue;
+      const shouldValidate = data[condition.field] === condition.value;
+      if (!shouldValidate) continue;
+
+      const value = data[field.name];
+      let hasValue = true;
+
+      if (field.type === "checkbox") {
+        hasValue = value === true;
+      } else if (field.type === "checkbox-group") {
+        hasValue = Array.isArray(value) && value.length > 0;
+      } else if (field.type === "number") {
+        hasValue = value !== undefined && value !== null && !Number.isNaN(value as number);
+      } else {
+        hasValue = typeof value === "string" ? value.trim().length > 0 : !!value;
+      }
+
+      if (!hasValue) {
+        ctx.addIssue({
+          path: [field.name],
+          code: z.ZodIssueCode.custom,
+          message: field.validation?.message || `${field.label} is required`,
+        });
+      }
+    }
+  });
 }
 
 // ---- Default value factory ----
@@ -214,6 +243,7 @@ export function DynamicForm({ config, user, onSubmit, isSubmitting }: DynamicFor
     // submission sends the same columns to Google Sheets.
     const serialized: Record<string, unknown> = {};
     for (const field of config.fields) {
+      if (field.uiOnly) continue;
       const value = data[field.name];
       if (field.type === "checkbox-group" && Array.isArray(value)) {
         serialized[field.name] = value.join(", ");
