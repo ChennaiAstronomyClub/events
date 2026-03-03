@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:meta.discourse.org)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:iith.dev)",
+      "Bash(npm install:*)",
+      "Bash(npx shadcn@latest init:*)",
+      "Bash(npx shadcn@latest add:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run build:*)",
+      "Bash(node --version:*)"
+    ]
+  }
+}
