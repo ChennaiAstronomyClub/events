@@ -74,18 +74,31 @@ export const storage = {
   },
 
   // ---- Form submission tracking ----
-  markFormSubmitted(formId: string, email: string) {
+  markFormSubmitted(
+    formId: string,
+    email: string,
+    data: Record<string, unknown> = {}
+  ) {
     localStorage.setItem(
       `cac_submitted_${formId}`,
-      JSON.stringify({ email, submittedAt: new Date().toISOString() })
+      JSON.stringify({ email, submittedAt: new Date().toISOString(), data })
     );
   },
 
   getFormSubmission(
     formId: string
-  ): { email: string; submittedAt: string } | null {
+  ): { email: string; submittedAt: string; data: Record<string, unknown> } | null {
     const raw = localStorage.getItem(`cac_submitted_${formId}`);
     return raw ? JSON.parse(raw) : null;
+  },
+
+  updateFormSubmissionData(formId: string, patch: Record<string, unknown>) {
+    const existing = this.getFormSubmission(formId);
+    if (!existing) return;
+    localStorage.setItem(
+      `cac_submitted_${formId}`,
+      JSON.stringify({ ...existing, data: { ...existing.data, ...patch } })
+    );
   },
 
   clearFormSubmission(formId: string) {

@@ -7,6 +7,7 @@ import { FormPage } from "@/pages/FormPage";
 import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
 import { SuccessPage } from "@/pages/SuccessPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
+import { AdminPage } from "@/pages/AdminPage";
 
 export default function App() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
             />
             <Route path="/auth/callback" element={<AuthCallbackPage />} />
             <Route path="/success" element={<SuccessPage />} />
+            <Route path="/admin" element={<AdminPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </PageLayout>

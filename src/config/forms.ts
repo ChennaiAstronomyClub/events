@@ -9,6 +9,7 @@ import {
 export const formConfigs: FormConfig[] = [
   {
     id: "star-party-march-2026",
+    registrationClosesAt: "2026-03-08T00:00:00",
     title: "Star Party - March 2026",
     description: "Register your attendance for this month's star party. We are running a two night event on 13th and 14th March, so please specify which night(s) you will be joining. This will help us with logistics and planning.",
     // startTime: "2026-03-15T18:00:00",
@@ -228,4 +229,20 @@ export const formConfigs: FormConfig[] = [
 
 export function getFormConfig(formId: string): FormConfig | undefined {
   return formConfigs.find((f) => f.id === formId);
+}
+
+export type RegistrationStatus = "not-yet-open" | "open" | "closed";
+
+/**
+ * Compute whether registration is currently open, not yet open, or closed
+ * based on the form's registrationOpensAt / registrationClosesAt timestamps.
+ * If neither is set, registration is always open.
+ */
+export function getRegistrationStatus(config: FormConfig): RegistrationStatus {
+  const now = new Date();
+  if (config.registrationOpensAt && new Date(config.registrationOpensAt) > now)
+    return "not-yet-open";
+  if (config.registrationClosesAt && new Date(config.registrationClosesAt) < now)
+    return "closed";
+  return "open";
 }

@@ -682,3 +682,308 @@ Single line addition. No other files need changes.
 9. Refresh page → session persists (API key in localStorage)
 10. Logout → state clears, protected routes redirect to login
 11. Submit Google Form → check RSVP tab has new row with `username=google-form`, `memberType=unverified`, and data in correct columns
+
+---
+
+## Targeted Notices via Vercel Serverless Function
+
+### Context
+Organisers need to post updates (e.g. meeting point, schedule change) visible only to members of a specific Discourse group. Content must not be in the JS bundle — a determined user reading the source should not be able to find the message. The notice appears on both the Home page and Form page.
+
+### Approach
+A Vercel serverless function (`api/notice.ts`) receives the user's Discourse API key, calls Discourse to verify group membership server-side, and returns the notice only if the user qualifies. Notice content is stored in Vercel environment variables (easy to update without redeployment). The JS bundle contains no message text and no group names.
+
+### Architecture
+```
+Client                  Vercel Function          Discourse
+  |                          |                       |
+  |-- GET /api/notice ------>|                       |
+  |   User-Api-Key: <key>    |                       |
+  |   ?formId=star-party     |                       |
+  |                          |-- GET /session/current.json -->|
+  |                          |   User-Api-Key: <key>          |
+  |                          |<-- { current_user: { groups } }|
+  |                          |                       |
+  |                          | check groups vs env var config
+  |                          |                       |
+  |<-- 200 { message, ... } -| (if in group)         |
+  |<-- 403 Forbidden --------| (if not in group)     |
+```
+
+### Notice Schema
+Each form can have **multiple notices** stored as a JSON array. A user sees a notice if they pass **all** configured conditions.
+
+```typescript
+interface NoticeConfig {
+  id: string;           // Stable ID for dismissal tracking (e.g. "sp-mar26-meetpoint")
+  title?: string;
+  message: string;
+  linkUrl?: string;
+  linkLabel?: string;
+  type?: "info" | "warning" | "success"; // Alert style; default "info"
+  dismissible?: boolean;                  // Show a close button; default false
+
+  // Targeting — user must match at least one of groups OR usernames (if either is set)
+  groups?: string[];       // Discourse group names
+  usernames?: string[];    // Specific Discourse usernames
+  minTrustLevel?: number;  // Discourse trust level >= this (0–4)
+
+  // Time window — both evaluated server-side (avoids client clock manipulation)
+  activeFrom?: string;  // ISO datetime; notice hidden before this
+  activeUntil?: string; // ISO datetime; notice hidden after this
+}
+```
+
+### Environment Variables (set in Vercel dashboard)
+One env var per form, containing a **JSON array** of notice objects:
+
+```
+NOTICE_STAR_PARTY_MARCH_2026=[
+  {
+    "id": "sp-mar26-meetpoint",
+    "groups": ["star-party-registered"],
+    "title": "Meeting point update",
+    "message": "Meet at the main gate at 6:30 PM. Bring warm clothing.",
+    "linkUrl": "https://chat.whatsapp.com/...",
+    "linkLabel": "Join the WhatsApp group",
+    "dismissible": true,
+    "activeFrom": "2026-03-05T00:00:00Z"
+  },
+  {
+    "id": "sp-mar26-vip",
+    "usernames": ["telescope_owner"],
+    "message": "Your telescope spot at Pad 3 has been reserved.",
+    "type": "success"
+  }
+]
+```
+
+To update: edit env var in Vercel → redeploy. To disable all: remove the env var.
+
+### Files to Create / Modify
+
+#### 1. `api/notice.ts` (NEW — Vercel serverless function)
+Fetches user data from Discourse, filters the notices array down to those the user qualifies for, and returns them. Targeting fields (`groups`, `usernames`, `minTrustLevel`) and time windows (`activeFrom`/`activeUntil`) are evaluated server-side and stripped from the response.
+
+Logic per notice:
+- If `groups` or `usernames` set → user must be in at least one group OR username must match
+- If `minTrustLevel` set → user's trust level must be >=
+- If `activeFrom`/`activeUntil` set → current server time must be within the window
+- All conditions that are set must pass (AND logic between condition types)
+
+Returns: array of notices the user qualifies for (targeting fields stripped). Empty array → no notices shown. 401 if no API key. 500 if Discourse call fails.
+
+#### 2. `src/hooks/useNotice.ts` (NEW)
+```typescript
+import { useState, useEffect } from "react";
+import { storage } from "@/lib/storage";
+
+export interface Notice {
+  id: string;
+  title?: string;
+  message: string;
+  linkUrl?: string;
+  linkLabel?: string;
+  type?: "info" | "warning" | "success";
+  dismissible?: boolean;
+}
+
+export function useNotices(formId: string, isAuthenticated: boolean): Notice[] {
+  const [notices, setNotices] = useState<Notice[]>([]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const apiKey = storage.getApiKey();
+    if (!apiKey) return;
+
+    fetch(`/api/notice?formId=${encodeURIComponent(formId)}`, {
+      headers: { "User-Api-Key": apiKey },
+    })
+      .then(res => (res.ok ? res.json() : []))
+      .then(data => setNotices(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [formId, isAuthenticated]);
+
+  return notices;
+}
+```
+
+#### 3. `src/components/notices/NoticeAlert.tsx` (NEW — reusable)
+Renders all applicable notices for a form. Handles dismissal via localStorage keyed by `notice.id`.
+
+```tsx
+import { useState } from "react";
+import { useNotices } from "@/hooks/useNotice";
+import { useAuth } from "@/hooks/useAuth";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { X } from "lucide-react";
+
+const DISMISSED_KEY = "cac_dismissed_notices";
+
+function getDismissed(): string[] {
+  try { return JSON.parse(localStorage.getItem(DISMISSED_KEY) ?? "[]"); }
+  catch { return []; }
+}
+
+function dismiss(id: string) {
+  const current = getDismissed();
+  localStorage.setItem(DISMISSED_KEY, JSON.stringify([...new Set([...current, id])]));
+}
+
+export function NoticeAlert({ formId }: { formId: string }) {
+  const { isAuthenticated } = useAuth();
+  const notices = useNotices(formId, isAuthenticated);
+  const [dismissed, setDismissed] = useState<string[]>(getDismissed);
+
+  const visible = notices.filter(n => !dismissed.includes(n.id));
+  if (!visible.length) return null;
+
+  return (
+    <div className="space-y-2">
+      {visible.map(notice => (
+        <Alert key={notice.id} variant={notice.type === "warning" ? "destructive" : "default"}>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              {notice.title && <AlertTitle>{notice.title}</AlertTitle>}
+              <AlertDescription>
+                {notice.message}
+                {notice.linkUrl && (
+                  <a href={notice.linkUrl} target="_blank" rel="noopener noreferrer" className="ml-2 underline">
+                    {notice.linkLabel ?? "Learn more"}
+                  </a>
+                )}
+              </AlertDescription>
+            </div>
+            {notice.dismissible && (
+              <button onClick={() => { dismiss(notice.id); setDismissed(getDismissed()); }}
+                className="text-muted-foreground hover:text-foreground shrink-0">
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        </Alert>
+      ))}
+    </div>
+  );
+}
+```
+
+#### 4. `src/pages/HomePage.tsx`
+Add `<NoticeAlert formId={form.id} />` below the Register button inside each form's Card.
+
+#### 5. `src/pages/FormPage.tsx`
+Add `<NoticeAlert formId={config.id} />` at the top of the page content, above the form/already-registered card.
+
+#### 4. `src/pages/HomePage.tsx` and `src/pages/FormPage.tsx`
+Add `<NoticeAlert formId={form.id} />` — below the Register button in HomePage's Card, and at the top of FormPage content.
+
+#### 5. `src/App.tsx`
+Add `/admin` route pointing to `AdminPage`.
+
+---
+
+## Email Notifications to Group Members
+
+### Context
+When an organiser publishes a notice, they want to proactively email group members rather than waiting for them to check the app. Emails are sent to Discourse group members (same targeting as the notice). Triggered from a protected admin page in the app.
+
+### New Environment Variables (Vercel)
+```
+RESEND_API_KEY=re_...                      # From resend.com dashboard
+DISCOURSE_ADMIN_API_KEY=<key>              # Discourse admin API key (Admin → API)
+DISCOURSE_ADMIN_USERNAME=<username>        # Discourse admin username (for group member lookup)
+```
+No `ADMIN_SECRET` needed — access is controlled by the user's Discourse admin status, verified server-side.
+Server-only vars (no `VITE_` prefix — never bundled into client JS): `RESEND_API_KEY`, `DISCOURSE_ADMIN_API_KEY`, `DISCOURSE_ADMIN_USERNAME`.
+
+### Files to Create / Modify
+
+#### 6. `api/send-notice.ts` (NEW — Vercel serverless function)
+```
+POST /api/send-notice
+Body: { formId }
+Headers: User-Api-Key: <user's discourse api key>
+```
+
+Logic:
+1. Call `GET /session/current.json` with the `User-Api-Key` header → verify `current_user.admin === true` → 403 if not
+2. Read `NOTICE_<FORM_ID>` env var → 404 if not set
+3. For each group name in the notice config:
+   - Call `GET /groups/{name}/members.json` with Discourse admin API key (paginated, up to 1000 members)
+   - Collect `{ email, username, name }` per member
+4. Merge with any `usernames` targets (if set) — fetch their profiles via `GET /u/{username}.json`
+5. Deduplicate emails
+6. Build email HTML from notice `title`, `message`, `linkUrl`
+7. Send via Resend batch API (`POST https://api.resend.com/emails/batch`, max 100 per batch)
+8. Return `{ sent: N, failed: M }`
+
+#### 7. `src/types/discourse.ts`
+Add `admin?: boolean` to `DiscourseUser` (already returned by `/session/current.json`, just not typed).
+
+#### 8. `src/pages/AdminPage.tsx` (NEW)
+Protected page at `/admin`. Uses the existing `useAuth()` hook — if the user is not logged in or `user.admin !== true`, shows an "Access denied" message. No password input needed.
+
+```tsx
+export function AdminPage() {
+  const { isAuthenticated, user, isLoading } = useAuth();
+  const [results, setResults] = useState<Record<string, string>>({});
+
+  if (isLoading) return <LoadingSpinner />;
+  if (!isAuthenticated) return <p>Please log in.</p>;
+  if (!user?.admin) return <p>Access denied. Requires Discourse admin.</p>;
+
+  return (
+    <div>
+      <h1>Admin — Send Notifications</h1>
+      {formConfigs.map(form => (
+        <Card key={form.id}>
+          <CardHeader><CardTitle>{form.title}</CardTitle></CardHeader>
+          <CardContent>
+            <Button onClick={() => sendNotice(form.id, setResults)}>
+              Send Email Notification
+            </Button>
+            {results[form.id] && <p>{results[form.id]}</p>}
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+async function sendNotice(formId: string, setResults: ...) {
+  const apiKey = storage.getApiKey();
+  const res = await fetch("/api/send-notice", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "User-Api-Key": apiKey! },
+    body: JSON.stringify({ formId }),
+  });
+  const data = await res.json();
+  setResults(r => ({ ...r, [formId]: res.ok ? `Sent to ${data.sent}` : data.error }));
+}
+```
+
+### Setup Steps
+1. Sign up at [resend.com](https://resend.com), verify your domain, copy API key
+2. In Discourse: Admin → API → Generate Global API Key (admin scope) → copy key and admin username
+3. Add env vars in Vercel: `RESEND_API_KEY`, `DISCOURSE_ADMIN_API_KEY`, `DISCOURSE_ADMIN_USERNAME`, `NOTICE_<FORM_ID>`
+4. `npm install -D @vercel/node` — TypeScript types for Vercel functions
+5. Create a Discourse group (e.g. `star-party-registered`), add registered users
+6. Add `/admin` route to `src/App.tsx`
+7. Redeploy
+
+### Verification
+**Notices (read-only):**
+1. Log in as a group member → notice appears on Home and Form pages
+2. Log in as non-member → no notice
+3. Log out → no notice
+4. Set `dismissible: true` → close button appears; closing persists across page refreshes
+5. Set `activeUntil` to a past date → notice disappears automatically
+
+**Email sending:**
+1. Log in as a Discourse admin → navigate to `/admin` → page loads (no password needed)
+2. Log in as a non-admin → `/admin` shows "Access denied"
+3. Click "Send Email Notification" for a form
+4. API verifies admin status via Discourse, fetches group members, sends via Resend
+5. Returns `{ sent: N, failed: 0 }` → shown on the page
+6. Check Resend dashboard → emails logged with delivery status
+7. Check inbox (as a group member) → email received

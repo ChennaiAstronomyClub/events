@@ -1,20 +1,24 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useFormSubmit } from "@/hooks/useFormSubmit";
-import { getFormConfig } from "@/config/forms";
+import { getFormConfig, getRegistrationStatus } from "@/config/forms";
 import { isVerifiedUser, VERIFIED_GROUP_NAME } from "@/config/discourse-fields";
 import { updateUserFields } from "@/lib/discourse-api";
 import { storage } from "@/lib/storage";
+import { cancelRegistration, updateRegistration } from "@/lib/google-sheets";
 import { DynamicForm, type SaveToProfileField } from "@/components/forms/DynamicForm";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { NoticeAlert } from "@/components/notices/NoticeAlert";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+
+type CardMode = "view" | "change-dates" | "confirm-cancel";
 
 export function FormPage() {
   const { formId } = useParams<{ formId: string }>();
@@ -25,11 +29,75 @@ export function FormPage() {
   const config = formId ? getFormConfig(formId) : undefined;
 
   // Check if this user already submitted this form (client-side quick check)
-  const alreadySubmitted = useMemo(() => {
-    if (!config || !user) return false;
-    const submission = storage.getFormSubmission(config.id);
-    return submission !== null && submission.email === user.email;
+  const submission = useMemo(() => {
+    if (!config || !user) return null;
+    const s = storage.getFormSubmission(config.id);
+    return s !== null && s.email === user.email ? s : null;
   }, [config, user]);
+
+  const alreadySubmitted = submission !== null || isDuplicate;
+
+  // Parse stored nights from localStorage submission data
+  const storedNights = useMemo(() => {
+    const raw = submission?.data?.nights;
+    if (typeof raw === "string" && raw.trim()) {
+      return raw.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+    return [];
+  }, [submission]);
+
+  // Find the nights field in config (used for change-dates UI)
+  const nightsField = useMemo(
+    () => config?.fields.find((f) => f.name === "nights"),
+    [config]
+  );
+
+  // ---- Already-registered card state ----
+  const [cardMode, setCardMode] = useState<CardMode>("view");
+  const [cardLoading, setCardLoading] = useState(false);
+  const [cardError, setCardError] = useState<string | null>(null);
+  const [selectedNights, setSelectedNights] = useState<string[]>([]);
+
+  function openChangeDates() {
+    setSelectedNights([...storedNights]);
+    setCardError(null);
+    setCardMode("change-dates");
+  }
+
+  async function handleCancelConfirm() {
+    setCardLoading(true);
+    setCardError(null);
+    const result = await cancelRegistration(config!.sheetTab, user!.email);
+    if (result.success) {
+      storage.clearFormSubmission(config!.id);
+      navigate("/", { state: { cancelled: config!.title } });
+    } else {
+      setCardError(result.message ?? result.error ?? "Failed to cancel. Please try again.");
+      setCardLoading(false);
+    }
+  }
+
+  async function handleUpdateDates() {
+    if (selectedNights.length === 0) {
+      setCardError("Please select at least one night.");
+      return;
+    }
+    setCardLoading(true);
+    setCardError(null);
+    const nightsValue = selectedNights.join(", ");
+    const result = await updateRegistration(config!.sheetTab, user!.email, {
+      nights: nightsValue,
+    });
+    if (result.success) {
+      storage.updateFormSubmissionData(config!.id, { nights: nightsValue });
+      setCardMode("view");
+    } else {
+      setCardError(result.message ?? result.error ?? "Failed to update. Please try again.");
+    }
+    setCardLoading(false);
+  }
+
+  // ---- Early returns ----
 
   if (!config) {
     return (
@@ -44,24 +112,199 @@ export function FormPage() {
 
   if (!user) return null;
 
-  // Show "Already Registered" card if duplicate detected (client or server)
-  if (alreadySubmitted || isDuplicate) {
+  // Block new registrations when the window is closed/not-yet-open.
+  // Already-registered users bypass this so they can still manage their registration.
+  const regStatus = getRegistrationStatus(config);
+  if (regStatus !== "open" && !alreadySubmitted) {
+    const opensDate = config.registrationOpensAt
+      ? new Date(config.registrationOpensAt).toLocaleString("en-IN", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        })
+      : "";
     return (
       <div className="flex items-center justify-center py-12">
-        <Card className="max-w-md">
+        <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle>Already Registered</CardTitle>
+            <CardTitle>
+              {regStatus === "closed" ? "Registration Closed" : "Registration Not Yet Open"}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-muted-foreground">
-              You have already registered for {config.title}. Each participant
-              can only register once.
+            <p className="text-sm text-muted-foreground">
+              {regStatus === "closed"
+                ? `Registration for ${config.title} has closed.`
+                : `Registration for ${config.title} opens on ${opensDate}.`}
             </p>
             <Button asChild variant="outline" className="w-full">
               <Link to="/">Back to Home</Link>
             </Button>
           </CardContent>
         </Card>
+      </div>
+    );
+  }
+
+  // Show interactive "Already Registered" card if duplicate detected (client or server)
+  if (alreadySubmitted) {
+    return (
+      <div className="space-y-4">
+        <NoticeAlert formId={config.id} />
+        <div className="flex items-center justify-center py-12">
+
+          {/* VIEW mode */}
+          {cardMode === "view" && (
+            <Card className="w-full max-w-md">
+              <CardHeader>
+                <CardTitle>You&apos;re Registered ✓</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {storedNights.length > 0 && nightsField && (
+                  <p className="text-sm text-muted-foreground">
+                    <span className="font-medium">Attending:</span>{" "}
+                    {storedNights
+                      .map((v) => {
+                        const opt = nightsField.options?.find((o) => o.value === v);
+                        return opt ? opt.label : v;
+                      })
+                      .join(", ")}
+                  </p>
+                )}
+                {cardError && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{cardError}</AlertDescription>
+                  </Alert>
+                )}
+                <div className="flex gap-2">
+                  {nightsField && (
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={openChangeDates}
+                    >
+                      Change Dates
+                    </Button>
+                  )}
+                  <Button
+                    variant="destructive"
+                    className="flex-1"
+                    onClick={() => {
+                      setCardError(null);
+                      setCardMode("confirm-cancel");
+                    }}
+                  >
+                    Cancel Registration
+                  </Button>
+                </div>
+                <Button asChild variant="ghost" className="w-full">
+                  <Link to="/">Back to Home</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* CHANGE-DATES mode */}
+          {cardMode === "change-dates" && nightsField && (
+            <Card className="w-full max-w-md">
+              <CardHeader>
+                <CardTitle>Update your dates</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col gap-2">
+                  {nightsField.options?.map((opt) => (
+                    <label key={opt.value} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="accent-primary"
+                        checked={selectedNights.includes(opt.value)}
+                        onChange={(e) => {
+                          setSelectedNights((prev) =>
+                            e.target.checked
+                              ? [...prev, opt.value]
+                              : prev.filter((v) => v !== opt.value)
+                          );
+                        }}
+                      />
+                      {opt.label}
+                    </label>
+                  ))}
+                </div>
+                {cardError && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{cardError}</AlertDescription>
+                  </Alert>
+                )}
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    disabled={cardLoading}
+                    onClick={() => {
+                      setCardError(null);
+                      setCardMode("view");
+                    }}
+                  >
+                    Go Back
+                  </Button>
+                  <Button
+                    className="flex-1"
+                    disabled={cardLoading}
+                    onClick={handleUpdateDates}
+                  >
+                    {cardLoading ? "Updating…" : "Confirm Update"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* CONFIRM-CANCEL mode */}
+          {cardMode === "confirm-cancel" && (
+            <Card className="w-full max-w-md">
+              <CardHeader>
+                <CardTitle>Cancel Registration?</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  This will remove your spot from{" "}
+                  <span className="font-medium">{config.title}</span>. You can
+                  re-register later if spots are available.
+                </p>
+                {cardError && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{cardError}</AlertDescription>
+                  </Alert>
+                )}
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    disabled={cardLoading}
+                    onClick={() => {
+                      setCardError(null);
+                      setCardMode("view");
+                    }}
+                  >
+                    Go Back
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="flex-1"
+                    disabled={cardLoading}
+                    onClick={handleCancelConfirm}
+                  >
+                    {cardLoading ? "Cancelling…" : "Yes, Cancel"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+        </div>
       </div>
     );
   }
@@ -79,8 +322,8 @@ export function FormPage() {
     );
 
     if (result.success) {
-      // Mark form as submitted in localStorage
-      storage.markFormSubmitted(config!.id, user!.email);
+      // Mark form as submitted in localStorage, storing the submitted data
+      storage.markFormSubmitted(config!.id, user!.email, data);
 
       // Save fields to Discourse profile if requested
       if (fieldsToSave.length > 0 && apiKey) {
@@ -114,6 +357,7 @@ export function FormPage() {
 
   return (
     <div className="space-y-4">
+      <NoticeAlert formId={config.id} />
       {error && (
         <Alert variant="destructive">
           <AlertTitle>Submission Error</AlertTitle>

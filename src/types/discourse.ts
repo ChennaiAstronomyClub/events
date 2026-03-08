@@ -11,6 +11,7 @@ export interface DiscourseUser {
   email: string;
   avatar_template: string;
   trust_level: number;
+  admin?: boolean;
   bio_raw: string;
   user_fields: Record<string, string>;
   groups: DiscourseGroup[];

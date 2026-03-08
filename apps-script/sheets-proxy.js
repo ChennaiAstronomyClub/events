@@ -6,6 +6,11 @@
  *   1. React app  — via doPost() web-app endpoint
  *   2. Google Form — via onFormSubmit() spreadsheet trigger
  *
+ * Supported actions (passed as data.action in POST body):
+ *   "submit" (default) — append a new row (or reactivate a cancelled one)
+ *   "cancel"           — mark an existing row as Cancelled (soft-delete)
+ *   "update"           — patch specific columns of an existing row
+ *
  * Deployment (as a bound script):
  *   1. Open your Google Sheet → Extensions → Apps Script
  *   2. Replace Code.gs contents with this file
@@ -18,13 +23,15 @@
  *   2. Triggers (clock icon) → Add Trigger
  *      Function: onFormSubmit  |  Event source: From spreadsheet  |  On form submit
  *   3. Authorize when prompted
+ *
+ * Requires V8 runtime (default since 2020): Apps Script → Project settings → V8
  */
 
 // ---- CONFIGURATION ----
-var SHARED_SECRET = "9f201af7a3ac8dc296481909bacc9242";
+const SHARED_SECRET = "9f201af7a3ac8dc296481909bacc9242";
 
 // Maximum payload size (bytes). Rejects oversized requests early.
-var MAX_PAYLOAD_BYTES = 50000; // ~50 KB
+const MAX_PAYLOAD_BYTES = 50000; // ~50 KB
 // ---- END CONFIGURATION ----
 
 // ---- HELPERS ----
@@ -39,13 +46,176 @@ function jsonResponse(obj) {
  * Sanitize a cell value to prevent spreadsheet formula injection.
  * If a string starts with =, +, -, or @ it could be interpreted as a
  * formula when the sheet is opened in Excel or exported as CSV.
+ * Applied to BOTH values AND column-header keys written to the sheet.
  */
 function sanitizeCell(value) {
   if (typeof value !== "string") return value;
-  if (/^[=+\-@\t\r]/.test(value)) {
-    return "'" + value; // prefix with single-quote to force text
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+}
+
+/**
+ * Return the 1-based column index of `name` in `headers`, or -1 if absent.
+ */
+function findColumnIndex(headers, name) {
+  const idx = headers.indexOf(name);
+  return idx === -1 ? -1 : idx + 1;
+}
+
+/**
+ * Find the 1-based row index of the first active (non-cancelled) registration
+ * for the given email. Returns -1 if not found.
+ */
+function findActiveRowByEmail(sheet, email) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return -1;
+
+  const lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return -1;
+
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const emailCol = findColumnIndex(headers, "email");
+  const statusCol = findColumnIndex(headers, "Status");
+
+  if (emailCol < 0) return -1;
+
+  const numRows = lastRow - 1;
+  const emailValues = sheet.getRange(2, emailCol, numRows, 1).getValues();
+  const statusValues =
+    statusCol > 0 ? sheet.getRange(2, statusCol, numRows, 1).getValues() : null;
+
+  for (let j = 0; j < emailValues.length; j++) {
+    if (statusValues?.[j][0] === "Cancelled") continue;
+    if (String(emailValues[j][0]).toLowerCase() === String(email).toLowerCase()) {
+      return j + 2; // 1-based (row 1 = headers, row 2 = first data row)
+    }
   }
-  return value;
+  return -1;
+}
+
+/**
+ * Return the 1-based column index for colName. If the column doesn't exist,
+ * write colName (sanitized) to the next empty header cell and return its new index.
+ */
+function ensureColumn(sheet, colName) {
+  const safeName = sanitizeCell(String(colName));
+  const lastCol = sheet.getLastColumn();
+
+  if (lastCol === 0) {
+    sheet.getRange(1, 1).setValue(safeName);
+    return 1;
+  }
+
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const existing = headers.indexOf(colName);
+  if (existing !== -1) return existing + 1;
+
+  // Not found — append to header row
+  const newIndex = lastCol + 1;
+  sheet.getRange(1, newIndex).setValue(safeName);
+  return newIndex;
+}
+
+/**
+ * Find the 1-based row index of the most recent CANCELLED registration for
+ * the given email. Returns -1 if none exists.
+ */
+function findCancelledRowByEmail(sheet, email) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return -1;
+
+  const lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return -1;
+
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const emailCol = findColumnIndex(headers, "email");
+  const statusCol = findColumnIndex(headers, "Status");
+
+  // No Status column means no rows have ever been cancelled
+  if (emailCol < 0 || statusCol < 0) return -1;
+
+  const numRows = lastRow - 1;
+  const emailValues = sheet.getRange(2, emailCol, numRows, 1).getValues();
+  const statusValues = sheet.getRange(2, statusCol, numRows, 1).getValues();
+
+  for (let j = 0; j < emailValues.length; j++) {
+    if (
+      String(statusValues[j][0]) === "Cancelled" &&
+      String(emailValues[j][0]).toLowerCase() === String(email).toLowerCase()
+    ) {
+      return j + 2; // 1-based row index
+    }
+  }
+  return -1;
+}
+
+// ---- ACTION HANDLERS ----
+
+/**
+ * Soft-delete a registration by setting its Status column to "Cancelled".
+ * Identified by email address.
+ */
+function handleCancel(data, sheet) {
+  const email = data.email;
+  if (!email) return jsonResponse({ success: false, error: "Missing email" });
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    const rowIndex = findActiveRowByEmail(sheet, email);
+    if (rowIndex < 0) {
+      lock.releaseLock();
+      return jsonResponse({ success: false, error: "Registration not found" });
+    }
+
+    const statusCol = ensureColumn(sheet, "Status");
+    sheet.getRange(rowIndex, statusCol).setValue("Cancelled");
+    lock.releaseLock();
+    return jsonResponse({ success: true });
+  } catch (err) {
+    lock.releaseLock();
+    return jsonResponse({ success: false, error: String(err) });
+  }
+}
+
+/**
+ * Patch specific columns of an existing active registration.
+ * data.updates is an object of { columnKey: newValue } pairs.
+ * Also sets/updates an "UpdatedAt" timestamp column.
+ */
+function handleUpdate(data, sheet) {
+  const email = data.email;
+  if (!email) return jsonResponse({ success: false, error: "Missing email" });
+
+  const updates = data.updates;
+  if (!updates || typeof updates !== "object") {
+    return jsonResponse({ success: false, error: "Missing updates" });
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    const rowIndex = findActiveRowByEmail(sheet, email);
+    if (rowIndex < 0) {
+      lock.releaseLock();
+      return jsonResponse({ success: false, error: "Registration not found" });
+    }
+
+    for (const key of Object.keys(updates)) {
+      const colIndex = ensureColumn(sheet, key);
+      sheet.getRange(rowIndex, colIndex).setValue(sanitizeCell(String(updates[key])));
+    }
+
+    const updatedAtCol = ensureColumn(sheet, "UpdatedAt");
+    sheet.getRange(rowIndex, updatedAtCol).setValue(new Date());
+
+    lock.releaseLock();
+    return jsonResponse({ success: true });
+  } catch (err) {
+    lock.releaseLock();
+    return jsonResponse({ success: false, error: String(err) });
+  }
 }
 
 // ---- WEB APP ENDPOINTS ----
@@ -53,69 +223,77 @@ function sanitizeCell(value) {
 function doPost(e) {
   try {
     // Guard against oversized payloads
-    var raw = e.postData.contents;
+    const raw = e.postData.contents;
     if (raw.length > MAX_PAYLOAD_BYTES) {
       return jsonResponse({ success: false, error: "Payload too large" });
     }
 
-    var data = JSON.parse(raw);
+    const data = JSON.parse(raw);
 
     // Authenticate
     if (data.secret !== SHARED_SECRET) {
       return jsonResponse({ success: false, error: "Unauthorized" });
     }
 
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheetName = data.sheetTab || "Sheet1";
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheetName = data.sheetTab || "Sheet1";
 
     // Whitelist sheet-tab names: alphanumeric, spaces, hyphens only
     if (!/^[\w\s-]+$/.test(sheetName)) {
       return jsonResponse({ success: false, error: "Invalid sheet name" });
     }
 
-    var sheet = ss.getSheetByName(sheetName);
-    if (!sheet) {
-      sheet = ss.insertSheet(sheetName);
-    }
+    const sheet = ss.getSheetByName(sheetName) ?? ss.insertSheet(sheetName);
 
-    // Build row data — exclude internal fields
-    var exclude = ["secret", "sheetTab"];
-    var keys = [];
-    var values = [];
+    // Dispatch on action
+    const action = data.action || "submit";
+    if (action === "cancel") return handleCancel(data, sheet);
+    if (action === "update") return handleUpdate(data, sheet);
 
-    keys.push("Timestamp");
-    values.push(new Date());
+    // ---- SUBMIT action (default) ----
 
-    for (var key in data) {
-      if (data.hasOwnProperty(key) && exclude.indexOf(key) === -1) {
-        keys.push(key);
+    // Build row data — exclude internal fields.
+    // Keys are sanitized here to prevent formula injection in the header row.
+    const exclude = new Set(["secret", "sheetTab", "action"]);
+    const keys = ["Timestamp"];
+    const values = [new Date()];
+
+    for (const key of Object.keys(data)) {
+      if (!exclude.has(key)) {
+        keys.push(sanitizeCell(String(key)));
         values.push(sanitizeCell(data[key]));
       }
     }
 
     // Acquire lock BEFORE duplicate check to prevent race conditions
-    var lock = LockService.getScriptLock();
+    const lock = LockService.getScriptLock();
     lock.waitLock(10000);
 
     try {
-      // ---- DUPLICATE CHECK (by email) ----
-      var email = data.email;
+      // ---- DUPLICATE CHECK (by email, skipping cancelled rows) ----
+      const email = data.email;
       if (email) {
-        var lastRow = sheet.getLastRow();
+        const lastRow = sheet.getLastRow();
         if (lastRow > 1) {
-          var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-          var emailColIndex = -1;
-          for (var i = 0; i < headers.length; i++) {
-            if (headers[i] === "email") {
-              emailColIndex = i + 1;
-              break;
-            }
-          }
+          const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+          const emailCol = findColumnIndex(headers, "email");
+          const statusCol = findColumnIndex(headers, "Status");
 
-          if (emailColIndex > 0) {
-            var emailValues = sheet.getRange(2, emailColIndex, lastRow - 1, 1).getValues();
-            for (var j = 0; j < emailValues.length; j++) {
-              if (String(emailValues[j][0]).toLowerCase() === String(email).toLowerCase()) {
+          if (emailCol > 0) {
+            const numRows = lastRow - 1;
+            const emailValues = sheet.getRange(2, emailCol, numRows, 1).getValues();
+            const statusValues =
+              statusCol > 0
+                ? sheet.getRange(2, statusCol, numRows, 1).getValues()
+                : null;
+
+            for (let j = 0; j < emailValues.length; j++) {
+              // Skip cancelled rows — they are allowed to re-register
+              if (statusValues?.[j][0] === "Cancelled") continue;
+              if (
+                String(emailValues[j][0]).toLowerCase() ===
+                String(email).toLowerCase()
+              ) {
                 lock.releaseLock();
                 return jsonResponse({
                   success: false,
@@ -129,7 +307,24 @@ function doPost(e) {
       }
       // ---- END DUPLICATE CHECK ----
 
-      // Write headers on first submission
+      // If a cancelled row exists for this email, reactivate it in place
+      // instead of appending a new row.
+      if (email) {
+        const cancelledRow = findCancelledRowByEmail(sheet, email);
+        if (cancelledRow > 0) {
+          for (let k = 0; k < keys.length; k++) {
+            const colIdx = ensureColumn(sheet, keys[k]);
+            sheet.getRange(cancelledRow, colIdx).setValue(values[k]);
+          }
+          // Clear the Status column so the row is active again
+          const statusCol = ensureColumn(sheet, "Status");
+          sheet.getRange(cancelledRow, statusCol).setValue("");
+          lock.releaseLock();
+          return jsonResponse({ success: true, row: cancelledRow });
+        }
+      }
+
+      // No prior cancelled row — write headers on first submission and append
       if (sheet.getLastRow() === 0) {
         sheet.appendRow(keys);
       }
@@ -143,7 +338,7 @@ function doPost(e) {
       throw innerError;
     }
   } catch (error) {
-    return jsonResponse({ success: false, error: error.toString() });
+    return jsonResponse({ success: false, error: String(error) });
   }
 }
 
@@ -157,7 +352,7 @@ function doGet() {
  * Map Google Form question titles → React-app column keys.
  * Update this whenever you change Google Form questions.
  */
-var FORM_FIELD_MAP = {
+const FORM_FIELD_MAP = {
   "Full Name": "name",
   "Email ID": "email",
   "Contact number": "phone",
@@ -171,11 +366,13 @@ var FORM_FIELD_MAP = {
   "Why do you want to attend this event?": "eventReason",
   "Emergency contact person and number": "emergencyContact",
   "Blood group": "bloodGroup",
-  "Smoking, consuming alcohol and other anti-social behavior are strictly prohibited": "conductCode",
-  "Disclaimer - Travelling by road involves inherent dangers including but not limited to accidents. CAC and its organizers are not responsible for any accidents or injuries during the event. CAC and organizers are not responsible for any loss or damage to personal property. The participant agrees to take full responsibility on the above": "riskDisclaimer",
+  "Smoking, consuming alcohol and other anti-social behavior are strictly prohibited":
+    "conductCode",
+  "Disclaimer - Travelling by road involves inherent dangers including but not limited to accidents. CAC and its organizers are not responsible for any accidents or injuries during the event. CAC and organizers are not responsible for any loss or damage to personal property. The participant agrees to take full responsibility on the above":
+    "riskDisclaimer",
   "Anything else that you would like to ask the CAC team?": "additionalQuestions",
 };
-var FORM_SHEET_TAB = "Entries";
+const FORM_SHEET_TAB = "Entries";
 
 /**
  * Installable trigger for Google Form submissions (spreadsheet-bound).
@@ -184,54 +381,47 @@ var FORM_SHEET_TAB = "Entries";
  * rather than the Form trigger's e.response.getItemResponses().
  */
 function onFormSubmit(e) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(FORM_SHEET_TAB);
+  const sheet =
+    SpreadsheetApp.getActiveSpreadsheet().getSheetByName(FORM_SHEET_TAB) ??
+    SpreadsheetApp.getActiveSpreadsheet().insertSheet(FORM_SHEET_TAB);
 
-  if (!sheet) {
-    sheet = ss.insertSheet(FORM_SHEET_TAB);
-  }
+  const namedValues = e.namedValues ?? {};
+  const data = {};
 
-  var namedValues = e.namedValues || {};
-  var data = {};
-
-  for (var title in namedValues) {
-    if (!namedValues.hasOwnProperty(title)) continue;
-    var key = FORM_FIELD_MAP[title];
+  for (const [title, answers] of Object.entries(namedValues)) {
+    const key = FORM_FIELD_MAP[title];
     if (key) {
-      var answers = namedValues[title];
-      var filtered = [];
-      for (var i = 0; i < answers.length; i++) {
-        if (answers[i] !== "") filtered.push(sanitizeCell(answers[i]));
-      }
-      data[key] = filtered.join(", ");
+      data[key] = answers
+        .filter((a) => a !== "")
+        .map((a) => sanitizeCell(a))
+        .join(", ");
     }
   }
 
-  // Read existing headers
-  var lastCol = sheet.getLastColumn();
-  var headers;
+  // Read existing headers (or write them on first Google Form submission)
+  const lastCol = sheet.getLastColumn();
+  let headers;
   if (sheet.getLastRow() === 0 || lastCol === 0) {
-    headers = ["Timestamp", "username", "memberType"];
-    var allKeys = Object.keys(FORM_FIELD_MAP).map(function (t) {
-      return FORM_FIELD_MAP[t];
-    });
-    headers = headers.concat(allKeys);
+    headers = [
+      "Timestamp",
+      "username",
+      "memberType",
+      ...Object.values(FORM_FIELD_MAP),
+    ];
     sheet.appendRow(headers);
   } else {
     headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
   }
 
   // Build row in header order
-  var row = [];
-  for (var j = 0; j < headers.length; j++) {
-    var h = headers[j];
-    if (h === "Timestamp") row.push(new Date());
-    else if (h === "username") row.push("google-form");
-    else if (h === "memberType") row.push("unverified");
-    else row.push(data[h] || "");
-  }
+  const row = headers.map((h) => {
+    if (h === "Timestamp") return new Date();
+    if (h === "username") return "google-form";
+    if (h === "memberType") return "unverified";
+    return data[h] ?? "";
+  });
 
-  var lock = LockService.getScriptLock();
+  const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   sheet.appendRow(row);
   lock.releaseLock();

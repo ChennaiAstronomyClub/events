@@ -51,8 +51,12 @@ export interface FormConfig {
   id: string;
   title: string;
   description?: string;
-  startTime?: string; // ISO datetime string
-  endTime?: string;   // ISO datetime string
+  startTime?: string; // ISO datetime string — event start time (display only)
+  endTime?: string;   // ISO datetime string — event end time (display only)
+  /** ISO datetime — registration is blocked before this time */
+  registrationOpensAt?: string;
+  /** ISO datetime — registration is blocked after this time */
+  registrationClosesAt?: string;
   sheetTab: string;
   fields: FormFieldConfig[];
   submitLabel?: string;
