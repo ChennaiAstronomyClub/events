@@ -349,47 +349,90 @@ function doGet() {
 // ---- GOOGLE FORM CONSOLIDATION ----
 
 /**
- * Map Google Form question titles → React-app column keys.
- * Update this whenever you change Google Form questions.
+ * Multiple event configurations for Google Form consolidation.
+ *
+ * Each entry maps a Google Form's response sheet tab to a target (React-app)
+ * sheet tab, along with the field map for that event's questions.
+ *
+ * To add a new event:
+ *   1. Link a new Google Form to this spreadsheet (it creates e.g. "Form Responses 2")
+ *   2. Add an entry here with formResponseTab matching the auto-created tab name
+ *   3. Set targetSheetTab to the React-app's sheetTab for this event
+ *   4. Define the fieldMap mapping Google Form question titles → column keys
+ *
+ * The onFormSubmit trigger uses e.range to detect which form submitted,
+ * then routes data to the correct target sheet.
  */
-const FORM_FIELD_MAP = {
-  "Full Name": "name",
-  "Email ID": "email",
-  "Contact number": "phone",
-  "Age Group": "age",
-  "Which nights will you be joining?": "nights",
-  "Equipment that you will bring": "equipment",
-  "Can you bring a car and offer carpooling to other participants?": "canBringCar",
-  "Number of seats available to other participants": "carSeats",
-  "Where will you be coming from?": "location",
-  "Describe your observational skills and experience": "observationalSkills",
-  "Why do you want to attend this event?": "eventReason",
-  "Emergency contact person and number": "emergencyContact",
-  "Blood group": "bloodGroup",
-  "Smoking, consuming alcohol and other anti-social behavior are strictly prohibited":
-    "conductCode",
-  "Disclaimer - Travelling by road involves inherent dangers including but not limited to accidents. CAC and its organizers are not responsible for any accidents or injuries during the event. CAC and organizers are not responsible for any loss or damage to personal property. The participant agrees to take full responsibility on the above":
-    "riskDisclaimer",
-  "Anything else that you would like to ask the CAC team?": "additionalQuestions",
-};
-const FORM_SHEET_TAB = "Entries";
+const FORM_EVENT_CONFIGS = [
+  {
+    formResponseTab: "Form Responses 1",
+    targetSheetTab: "Entries",
+    fieldMap: {
+      "Full Name": "name",
+      "Email ID": "email",
+      "Contact number": "phone",
+      "Age Group": "age",
+      "Which nights will you be joining?": "nights",
+      "Equipment that you will bring": "equipment",
+      "Can you bring a car and offer carpooling to other participants?": "canBringCar",
+      "Number of seats available to other participants": "carSeats",
+      "Where will you be coming from?": "location",
+      "Describe your observational skills and experience": "observationalSkills",
+      "Why do you want to attend this event?": "eventReason",
+      "Emergency contact person and number": "emergencyContact",
+      "Blood group": "bloodGroup",
+      "Smoking, consuming alcohol and other anti-social behavior are strictly prohibited":
+        "conductCode",
+      "Disclaimer - Travelling by road involves inherent dangers including but not limited to accidents. CAC and its organizers are not responsible for any accidents or injuries during the event. CAC and organizers are not responsible for any loss or damage to personal property. The participant agrees to take full responsibility on the above":
+        "riskDisclaimer",
+      "Anything else that you would like to ask the CAC team?": "additionalQuestions",
+    },
+  },
+  // Add more events here, e.g.:
+  // {
+  //   formResponseTab: "Form Responses 2",
+  //   targetSheetTab: "April Entries",
+  //   fieldMap: { ... },
+  // },
+];
+
+/**
+ * Look up the event config for a Google Form submission by matching the
+ * sheet tab where the form wrote its response row.
+ * Falls back to the first config if no match (single-form setup).
+ */
+function getFormEventConfig(sourceSheetName) {
+  const match = FORM_EVENT_CONFIGS.find(
+    (c) => c.formResponseTab === sourceSheetName
+  );
+  return match || FORM_EVENT_CONFIGS[0];
+}
 
 /**
  * Installable trigger for Google Form submissions (spreadsheet-bound).
  *
  * The spreadsheet trigger provides e.namedValues (question title → [answers])
  * rather than the Form trigger's e.response.getItemResponses().
+ *
+ * Supports multiple events: uses e.range to identify which Google Form
+ * submitted, then routes data to the correct target sheet tab.
  */
 function onFormSubmit(e) {
+  // Determine which event this form submission belongs to
+  const sourceSheet = e.range ? e.range.getSheet().getName() : "";
+  const eventConfig = getFormEventConfig(sourceSheet);
+  const fieldMap = eventConfig.fieldMap;
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet =
-    SpreadsheetApp.getActiveSpreadsheet().getSheetByName(FORM_SHEET_TAB) ??
-    SpreadsheetApp.getActiveSpreadsheet().insertSheet(FORM_SHEET_TAB);
+    ss.getSheetByName(eventConfig.targetSheetTab) ??
+    ss.insertSheet(eventConfig.targetSheetTab);
 
   const namedValues = e.namedValues ?? {};
   const data = {};
 
   for (const [title, answers] of Object.entries(namedValues)) {
-    const key = FORM_FIELD_MAP[title];
+    const key = fieldMap[title];
     if (key) {
       data[key] = answers
         .filter((a) => a !== "")
@@ -406,7 +449,7 @@ function onFormSubmit(e) {
       "Timestamp",
       "username",
       "memberType",
-      ...Object.values(FORM_FIELD_MAP),
+      ...Object.values(fieldMap),
     ];
     sheet.appendRow(headers);
   } else {
