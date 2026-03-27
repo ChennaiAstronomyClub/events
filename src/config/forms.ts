@@ -228,7 +228,7 @@ export const formConfigs: FormConfig[] = [
     id: "star-party-april-2026",
     registrationClosesAt: "2026-04-06T00:00:00",
     title: "Star Party - April 2026",
-    description: "Register your attendance for April's one-night star party on 11th April. AC rooms available; no individual beds; guests will need to share sleeping space; separate rooms for boys and girls. Adult cost: 1600; child cost: 1100.",
+    description: "Register your attendance for April's one-night star party on 11th April. AC rooms available; no individual beds; guests will need to share sleeping space; separate rooms for boys and girls. Adult cost: 1500; child cost: 1100.",
     sheetTab: "April Entries",
     verifiedSuccess: {
       message: "As a regular participant, we are skipping the shortlist process for you. You can join the event WhatsApp group directly!",
