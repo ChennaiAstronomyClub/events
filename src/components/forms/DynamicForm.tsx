@@ -54,7 +54,10 @@ export function getDiscourseValue(user: DiscourseUser, path: string): string {
 // ---- Schema builder ----
 
 /** Build a Zod object schema dynamically from an array of field configs. */
-function buildZodSchema(fields: FormFieldConfig[]) {
+function buildZodSchema(
+  fields: FormFieldConfig[],
+  atLeastOneOf?: FormConfig["atLeastOneOf"]
+) {
   const shape: Record<string, z.ZodTypeAny> = {};
   const conditionalRequired = fields.filter((f) => f.required && f.showWhen);
 
@@ -169,6 +172,27 @@ function buildZodSchema(fields: FormFieldConfig[]) {
         });
       }
     }
+
+    if (atLeastOneOf && atLeastOneOf.fields.length > 0) {
+      const hasAnyValue = atLeastOneOf.fields.some((fieldName) => {
+        const value = data[fieldName];
+        if (typeof value === "number") return Number.isFinite(value);
+        if (typeof value === "string") return value.trim().length > 0;
+        if (Array.isArray(value)) return value.length > 0;
+        if (typeof value === "boolean") return value;
+        return value !== undefined && value !== null;
+      });
+
+      if (!hasAnyValue) {
+        for (const fieldName of atLeastOneOf.fields) {
+          ctx.addIssue({
+            path: [fieldName],
+            code: z.ZodIssueCode.custom,
+            message: atLeastOneOf.message,
+          });
+        }
+      }
+    }
   });
 }
 
@@ -224,7 +248,10 @@ export function DynamicForm({ config, user, onSubmit, isSubmitting }: DynamicFor
   }, [visibleFields, user]);
 
   // 4. Build Zod schema
-  const schema = useMemo(() => buildZodSchema(visibleFields), [visibleFields]);
+  const schema = useMemo(
+    () => buildZodSchema(visibleFields, config.atLeastOneOf),
+    [visibleFields, config.atLeastOneOf]
+  );
 
   // 5. React Hook Form
   const methods = useForm({

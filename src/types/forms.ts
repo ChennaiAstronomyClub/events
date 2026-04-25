@@ -59,6 +59,11 @@ export interface FormConfig {
   registrationClosesAt?: string;
   sheetTab: string;
   fields: FormFieldConfig[];
+  /** Require at least one of these fields to be filled */
+  atLeastOneOf?: {
+    fields: string[];
+    message: string;
+  };
   submitLabel?: string;
   /** Shown to verified users on the success page after submission */
   verifiedSuccess?: VerifiedSuccessInfo;

@@ -434,6 +434,10 @@ export const formConfigs: FormConfig[] = [
     title: "Night Sky Passport Presale Registration",
     description: "Register your presale request for Night Sky Passport book copies. This would help us plan the production and distribution of the book.",
     sheetTab: "Night Sky Passport Presale Entries",
+    atLeastOneOf: {
+      fields: ["adultCopies", "kidsCopies"],
+      message: "Enter copies for adults or kids",
+    },
     submitLabel: "Submit",
     fields: [
       {
@@ -468,7 +472,7 @@ export const formConfigs: FormConfig[] = [
         name: "adultCopies",
         label: "Number of copies for adults (₹300 each)",
         type: "number",
-        required: true,
+        required: false,
         validation: { min: 0, max: 100 },
         section: "Presale Details",
         fullWidth: true,
@@ -477,7 +481,7 @@ export const formConfigs: FormConfig[] = [
         name: "kidsCopies",
         label: "Number of copies for kids (₹250 each)",
         type: "number",
-        required: true,
+        required: false,
         validation: { min: 0, max: 100 },
         section: "Presale Details",
         fullWidth: true,
