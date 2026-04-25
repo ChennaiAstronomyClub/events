@@ -74,12 +74,45 @@ function buildZodSchema(fields: FormFieldConfig[]) {
           })
         : z.boolean().optional();
     } else if (field.type === "number") {
-      let schema = z.number();
-      if (field.validation?.min !== undefined) schema = schema.min(field.validation.min);
-      if (field.validation?.max !== undefined) schema = schema.max(field.validation.max);
-      shape[field.name] = isRequired
-        ? z.coerce.number().pipe(schema)
-        : z.coerce.number().pipe(schema).optional();
+      const requiredMessage = field.validation?.message || `${field.label} is required`;
+      const invalidMessage = field.validation?.message || `${field.label} must be a valid number`;
+      const minMessage = field.validation?.message || `${field.label} must be at least ${field.validation?.min}`;
+      const maxMessage = field.validation?.message || `${field.label} must be at most ${field.validation?.max}`;
+
+      const parsedNumber = z.preprocess((value) => {
+        // Empty number inputs in react-hook-form can arrive as NaN; normalize to undefined
+        // so required validation shows a friendly message instead of a Zod type error.
+        if (value === "" || value === null || value === undefined) return undefined;
+        if (typeof value === "number") return Number.isNaN(value) ? undefined : value;
+        if (typeof value === "string") {
+          const parsed = Number(value);
+          return Number.isNaN(parsed) ? undefined : parsed;
+        }
+        return undefined;
+      }, z.number().optional());
+
+      let schema = parsedNumber;
+      if (isRequired) {
+        schema = schema.refine((value) => value !== undefined, { message: requiredMessage });
+      }
+      schema = schema.refine(
+        (value) => value === undefined || Number.isFinite(value),
+        { message: invalidMessage }
+      );
+      if (field.validation?.min !== undefined) {
+        schema = schema.refine(
+          (value) => value === undefined || value >= field.validation!.min!,
+          { message: minMessage }
+        );
+      }
+      if (field.validation?.max !== undefined) {
+        schema = schema.refine(
+          (value) => value === undefined || value <= field.validation!.max!,
+          { message: maxMessage }
+        );
+      }
+
+      shape[field.name] = schema;
     } else {
       // All text-like types: text, email, tel, textarea, select, radio
       let schema = z.string();

@@ -9,7 +9,12 @@
       "Bash(npx shadcn@latest add:*)",
       "Bash(npx tsc:*)",
       "Bash(npm run build:*)",
-      "Bash(node --version:*)"
+      "Bash(node --version:*)",
+      "Bash(git init)",
+      "Bash(git add -A)",
+      "Bash(git commit -m \"Initial package setup \\(v2.0.0\\)\")",
+      "WebFetch(domain:www.designtokens.org)",
+      "mcp__Claude_Preview__preview_start"
     ]
   }
 }
