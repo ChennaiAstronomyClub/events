@@ -1,12 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useFormSubmit } from "@/hooks/useFormSubmit";
 import { getFormConfig, getRegistrationStatus } from "@/config/forms";
-import { isVerifiedUser, VERIFIED_GROUP_NAME } from "@/config/discourse-fields";
 import { updateUserFields } from "@/lib/discourse-api";
 import { storage } from "@/lib/storage";
-import { cancelRegistration, updateRegistration } from "@/lib/google-sheets";
+import {
+  cancelRegistration,
+  getRegistrationStatusForSheet,
+  reserveRegistrationSlot,
+  updateRegistration,
+} from "@/lib/google-sheets";
 import { DynamicForm, type SaveToProfileField } from "@/components/forms/DynamicForm";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -57,6 +61,17 @@ export function FormPage() {
   const [cardLoading, setCardLoading] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
   const [selectedNights, setSelectedNights] = useState<string[]>([]);
+  const [capacityCheck, setCapacityCheck] = useState<{
+    sheetTab: string | null;
+    isFull: boolean;
+    message: string | null;
+    holdExpiresAt: string | null;
+  }>({
+    sheetTab: null,
+    isFull: false,
+    message: null,
+    holdExpiresAt: null,
+  });
 
   function openChangeDates() {
     setSelectedNights([...storedNights]);
@@ -65,9 +80,13 @@ export function FormPage() {
   }
 
   async function handleCancelConfirm() {
+    if (!apiKey) {
+      setCardError("Your session expired. Please log in again.");
+      return;
+    }
     setCardLoading(true);
     setCardError(null);
-    const result = await cancelRegistration(config!.sheetTab, user!.email);
+    const result = await cancelRegistration(config!.sheetTab, apiKey);
     if (result.success) {
       storage.clearFormSubmission(config!.id);
       navigate("/", { state: { cancelled: config!.title } });
@@ -78,6 +97,10 @@ export function FormPage() {
   }
 
   async function handleUpdateDates() {
+    if (!apiKey) {
+      setCardError("Your session expired. Please log in again.");
+      return;
+    }
     if (selectedNights.length === 0) {
       setCardError("Please select at least one night.");
       return;
@@ -85,7 +108,7 @@ export function FormPage() {
     setCardLoading(true);
     setCardError(null);
     const nightsValue = selectedNights.join(", ");
-    const result = await updateRegistration(config!.sheetTab, user!.email, {
+    const result = await updateRegistration(config!.sheetTab, apiKey, {
       nights: nightsValue,
     });
     if (result.success) {
@@ -96,6 +119,65 @@ export function FormPage() {
     }
     setCardLoading(false);
   }
+
+  const regStatus = config ? getRegistrationStatus(config) : "open";
+  const shouldCheckCapacity = Boolean(config && user && !alreadySubmitted && regStatus === "open");
+  const isCheckingCapacity =
+    shouldCheckCapacity && capacityCheck.sheetTab !== config?.sheetTab;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!shouldCheckCapacity || !config) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (!apiKey) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const checkPromise = config.requiresPayment
+      ? reserveRegistrationSlot(config.sheetTab, apiKey, {
+          formId: config.id,
+          requiresPayment: true,
+          reserveFields: config.fields.filter((field) => !field.uiOnly).map((field) => field.name),
+        })
+      : getRegistrationStatusForSheet(config.sheetTab, apiKey);
+
+    checkPromise
+      .then((result) => {
+        if (cancelled) return;
+        setCapacityCheck({
+          sheetTab: config.sheetTab,
+          isFull: Boolean(result.success && result.isFull),
+          message: result.success && result.isFull
+            ? (result.message || "Registrations are paused because the event is full.")
+            : null,
+          holdExpiresAt:
+            config.requiresPayment && result.success && "expiresAt" in result
+              ? (result.expiresAt as string | undefined) ?? null
+              : null,
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Fail open: allow submission if status check fails.
+        setCapacityCheck({
+          sheetTab: config.sheetTab,
+          isFull: false,
+          message: null,
+          holdExpiresAt: null,
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiKey, config, shouldCheckCapacity]);
 
   // ---- Early returns ----
 
@@ -114,7 +196,7 @@ export function FormPage() {
 
   // Block new registrations when the window is closed/not-yet-open.
   // Already-registered users bypass this so they can still manage their registration.
-  const regStatus = getRegistrationStatus(config);
+
   if (regStatus !== "open" && !alreadySubmitted) {
     const opensDate = config.registrationOpensAt
       ? new Date(config.registrationOpensAt).toLocaleString("en-IN", {
@@ -139,6 +221,47 @@ export function FormPage() {
               {regStatus === "closed"
                 ? `Registration for ${config.title} has closed.`
                 : `Registration for ${config.title} opens on ${opensDate}.`}
+            </p>
+            <Button asChild variant="outline" className="w-full">
+              <Link to="/">Back to Home</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (isCheckingCapacity) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Checking Availability</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Checking if registrations are still open for {config.title}...
+            </p>
+            <Button asChild variant="outline" className="w-full">
+              <Link to="/">Back to Home</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (shouldCheckCapacity && !isCheckingCapacity && capacityCheck.isFull) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Registration Full</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {capacityCheck.message ||
+                "Registrations are paused because the event is full. Please contact the organisers if you wish to register."}
             </p>
             <Button asChild variant="outline" className="w-full">
               <Link to="/">Back to Home</Link>
@@ -313,13 +436,11 @@ export function FormPage() {
     data: Record<string, unknown>,
     fieldsToSave: SaveToProfileField[]
   ) {
-    const memberType = isVerifiedUser(user!.groups) ? VERIFIED_GROUP_NAME : "regular";
-    const result = await submit(
-      config!.sheetTab,
-      data,
-      user!.username,
-      memberType
-    );
+    if (!apiKey) return;
+    const result = await submit(config!.sheetTab, data, apiKey, {
+      formId: config!.id,
+      requiresPayment: Boolean(config!.requiresPayment),
+    });
 
     if (result.success) {
       // Mark form as submitted in localStorage, storing the submitted data
@@ -343,12 +464,7 @@ export function FormPage() {
         }
       }
 
-      navigate("/success", {
-        state: {
-          formTitle: config!.title,
-          verifiedSuccess: isVerifiedUser(user!.groups) ? config!.verifiedSuccess : undefined,
-        },
-      });
+      navigate("/", { state: { paymentConfirmed: config!.title } });
     } else if (result.error === "duplicate") {
       // Server detected duplicate — mark localStorage so future visits show the card
       storage.markFormSubmitted(config!.id, user!.email);
@@ -358,6 +474,22 @@ export function FormPage() {
   return (
     <div className="space-y-4">
       <NoticeAlert formId={config.id} />
+      {config.requiresPayment && (
+        <Alert>
+          <AlertTitle>Payment Window</AlertTitle>
+          <AlertDescription>
+            Your seat is temporarily held for 5 minutes. Complete payment and submit this form within
+            5 minutes, otherwise your seat will be released.
+            {capacityCheck.holdExpiresAt
+              ? ` Hold valid until ${new Date(capacityCheck.holdExpiresAt).toLocaleTimeString("en-IN", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                  hour12: true,
+                })}.`
+              : ""}
+          </AlertDescription>
+        </Alert>
+      )}
       {error && (
         <Alert variant="destructive">
           <AlertTitle>Submission Error</AlertTitle>

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { AuthState } from "@/types/auth";
 import type { DiscourseUser } from "@/types/discourse";
 import { decryptPayload } from "@/lib/crypto-utils";
@@ -16,6 +16,7 @@ interface AuthContextValue extends AuthState {
 export const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const loginInProgressRef = useRef(false);
   const [state, setState] = useState<AuthState>({
     isAuthenticated: false,
     isLoading: true,
@@ -58,11 +59,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(() => {
+    if (loginInProgressRef.current) {
+      return;
+    }
+    loginInProgressRef.current = true;
+    setState((s) => ({ ...s, isLoading: true, error: null }));
+
     try {
       initiateLogin();
     } catch (err) {
+      loginInProgressRef.current = false;
       setState((s) => ({
         ...s,
+        isLoading: false,
         error: err instanceof Error ? err.message : "Login failed",
       }));
     }

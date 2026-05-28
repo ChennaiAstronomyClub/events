@@ -1,5 +1,3 @@
-import { APPS_SCRIPT_URL, SHEETS_SECRET } from "./env";
-
 /** Timeout for form submissions (ms) */
 const SUBMIT_TIMEOUT_MS = 15_000;
 
@@ -10,31 +8,58 @@ export interface SubmitResult {
   message?: string;
 }
 
-/** Shared fetch helper — sends JSON body as text/plain to skip CORS preflight. */
-async function postToSheets(payload: Record<string, unknown>): Promise<SubmitResult> {
+export interface RegistrationStatusResult {
+  success: boolean;
+  hasLimit?: boolean;
+  limit?: number | null;
+  activeRegistrations?: number;
+  isFull?: boolean;
+  error?: string;
+  message?: string;
+}
+
+export interface RegistrationReserveResult {
+  success: boolean;
+  hasLimit?: boolean;
+  limit?: number | null;
+  activeRegistrations?: number;
+  isFull?: boolean;
+  expiresAt?: string;
+  row?: number;
+  error?: string;
+  message?: string;
+}
+
+/** Shared fetch helper for server-side registration API. */
+async function callRegistrationsApi<T>(
+  apiKey: string,
+  payload: Record<string, unknown>
+): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), SUBMIT_TIMEOUT_MS);
 
   try {
-    const response = await fetch(APPS_SCRIPT_URL, {
+    const response = await fetch("/api/registrations", {
       method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      headers: {
+        "Content-Type": "application/json",
+        "User-Api-Key": apiKey,
+      },
       body: JSON.stringify(payload),
-      redirect: "follow",
       signal: controller.signal,
     });
 
     if (!response.ok) {
-      return { success: false, error: `Server error: ${response.status}` };
+      return { success: false, error: `Server error: ${response.status}` } as T;
     }
 
-    return await response.json();
+    return (await response.json()) as T;
   } catch (err: unknown) {
     if (err instanceof DOMException && err.name === "AbortError") {
-      return { success: false, error: "Request timed out. Please try again." };
+      return { success: false, error: "Request timed out. Please try again." } as T;
     }
     const message = err instanceof Error ? err.message : "Network error";
-    return { success: false, error: message };
+    return { success: false, error: message } as T;
   } finally {
     clearTimeout(timeout);
   }
@@ -49,15 +74,15 @@ async function postToSheets(payload: Record<string, unknown>): Promise<SubmitRes
 export async function submitToSheets(
   sheetTab: string,
   formData: Record<string, unknown>,
-  username: string,
-  memberType: string
+  apiKey: string,
+  options?: { formId?: string; requiresPayment?: boolean }
 ): Promise<SubmitResult> {
-  return postToSheets({
-    secret: SHEETS_SECRET,
+  return callRegistrationsApi<SubmitResult>(apiKey, {
+    action: "submit",
     sheetTab,
-    username,
-    memberType,
-    ...formData,
+    formData,
+    formId: options?.formId ?? "",
+    requiresPayment: Boolean(options?.requiresPayment),
   });
 }
 
@@ -67,13 +92,11 @@ export async function submitToSheets(
  */
 export async function cancelRegistration(
   sheetTab: string,
-  email: string
+  apiKey: string
 ): Promise<SubmitResult> {
-  return postToSheets({
-    secret: SHEETS_SECRET,
-    sheetTab,
+  return callRegistrationsApi<SubmitResult>(apiKey, {
     action: "cancel",
-    email,
+    sheetTab,
   });
 }
 
@@ -84,14 +107,42 @@ export async function cancelRegistration(
  */
 export async function updateRegistration(
   sheetTab: string,
-  email: string,
+  apiKey: string,
   updates: Record<string, unknown>
 ): Promise<SubmitResult> {
-  return postToSheets({
-    secret: SHEETS_SECRET,
-    sheetTab,
+  return callRegistrationsApi<SubmitResult>(apiKey, {
     action: "update",
-    email,
+    sheetTab,
     updates,
+  });
+}
+
+/**
+ * Read registration capacity status for a sheet before submission.
+ */
+export async function getRegistrationStatusForSheet(
+  sheetTab: string,
+  apiKey: string
+): Promise<RegistrationStatusResult> {
+  return callRegistrationsApi<RegistrationStatusResult>(apiKey, {
+    action: "status",
+    sheetTab,
+  });
+}
+
+/**
+ * Reserve a temporary seat hold for payment flows.
+ */
+export async function reserveRegistrationSlot(
+  sheetTab: string,
+  apiKey: string,
+  options?: { formId?: string; requiresPayment?: boolean; reserveFields?: string[] }
+): Promise<RegistrationReserveResult> {
+  return callRegistrationsApi<RegistrationReserveResult>(apiKey, {
+    action: "reserve",
+    sheetTab,
+    formId: options?.formId ?? "",
+    requiresPayment: Boolean(options?.requiresPayment),
+    reserveFields: Array.isArray(options?.reserveFields) ? options?.reserveFields : [],
   });
 }

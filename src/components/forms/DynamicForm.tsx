@@ -334,6 +334,11 @@ export function DynamicForm({ config, user, onSubmit, isSubmitting }: DynamicFor
     <FormWrapper
       title={config.title}
       description={config.description}
+      talkTitle={config.talkTitle}
+      talkSpeaker={config.talkSpeaker}
+      startTime={config.startTime}
+      endTime={config.endTime}
+      feeInfo={config.feeInfo}
       submitLabel={config.submitLabel}
       isSubmitting={isSubmitting}
       onSubmit={methods.handleSubmit((data) => handleFormSubmit(data as Record<string, unknown>))}

@@ -16,6 +16,9 @@ export interface FormFieldConfig {
   name: string;
   label: string;
   type: FieldType;
+  helperText?: string;
+  helperLinkLabel?: string;
+  helperLinkUrl?: string;
   placeholder?: string;
   required?: boolean;
   validation?: FieldValidation;
@@ -51,8 +54,15 @@ export interface FormConfig {
   id: string;
   title: string;
   description?: string;
+  /** If true, seat is held as Pending and expires unless payment is confirmed. */
+  requiresPayment?: boolean;
+  /** Prominent talk/session title shown on event cards (e.g. lecture name) */
+  talkTitle?: string;
+  /** Speaker or subtitle line shown below talkTitle */
+  talkSpeaker?: string;
   startTime?: string; // ISO datetime string — event start time (display only)
   endTime?: string;   // ISO datetime string — event end time (display only)
+  feeInfo?: string;   // Display-only fee/cost line on event cards
   /** ISO datetime — registration is blocked before this time */
   registrationOpensAt?: string;
   /** ISO datetime — registration is blocked after this time */

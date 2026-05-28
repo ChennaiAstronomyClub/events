@@ -8,7 +8,60 @@ import {
 
 export const formConfigs: FormConfig[] = [
   {
+    id: "city-meetup-may-31",
+    requiresPayment: true,
+    title: "City Meetup Series",
+    talkTitle: "Studying Undead Stars to Understand Theories of Physics",
+    talkSpeaker: "Prof. Manjari Bagchi, IMSc",
+    startTime: "2026-05-31T15:30:00",
+    endTime: "2026-05-31T17:30:00",
+    feeInfo: "INR 200 per head (venue charges split among all participants)",
+    verifiedSuccess: {
+      message: "Join the WhatsApp group using the link below. We will approve your WhatsApp group request within 2 hours of payment.",
+      linkUrl: "https://chat.whatsapp.com/GNTShIlHUvlDY2fQIds4bR?mode=gi_t",
+      linkLabel: "Join WhatsApp Group",
+    },
+    sheetTab: "May 31 Entries",
+    fields: [
+      {
+        name: "name",
+        label: "Full Name",
+        type: "text",
+        required: true,
+        discourseField: "name",
+        verifiedReadOnly: true,
+        section: "Personal Information",
+      },
+      {
+        name: "phone",
+        label: "Contact Number (used to add you to the WhatsApp group)",
+        type: "tel",
+        required: true,
+        discourseField: `user_fields.${PHONE_FIELD_ID}`,
+        verifiedReadOnly: true,
+        saveToProfile: true,
+        section: "Personal Information",
+      },
+      {
+        name: "upiReferenceLast4",
+        label: "Complete payment, then enter the last 4 digits of your transaction ID",
+        helperText: "Pay via UPI:",
+        helperLinkLabel: "Open UPI payment",
+        helperLinkUrl: "upi://pay?pa=sivasubramanyamicici@ybl&pn=Sivasubramanyam&cu=INR",
+        type: "text",
+        required: true,
+        validation: {
+          pattern: "^\\d{4}$",
+          message: "Enter exactly 4 digits",
+        },
+        placeholder: "e.g. 1234",
+        section: "Payment Details",
+      },
+    ],
+  },
+  {
     id: "star-party-march-2026",
+    requiresPayment: false,
     registrationClosesAt: "2026-03-08T00:00:00",
     title: "Star Party - March 2026",
     description: "Register your attendance for this month's star party. We are running a two night event on 13th and 14th March, so please specify which night(s) you will be joining. This will help us with logistics and planning.",
@@ -226,6 +279,7 @@ export const formConfigs: FormConfig[] = [
     ],
   }, {
     id: "star-party-april-2026",
+    requiresPayment: false,
     registrationClosesAt: "2026-03-29T00:00:00",
     title: "Star Party - April 2026",
     description: "Register your attendance for April's one-night star party on 11th April. AC rooms available; no individual beds; guests will need to share sleeping space; separate rooms for boys and girls. Adult cost: 1500; child cost: 1100.",
@@ -430,6 +484,7 @@ export const formConfigs: FormConfig[] = [
   },
   {
     id: "night-sky-passport-presale",
+    requiresPayment: false,
     registrationClosesAt: "2026-05-27T00:00:00",
     title: "Night Sky Passport Presale Registration",
     description: "Register your presale request for Night Sky Passport book copies. This would help us plan the production and distribution of the book.",

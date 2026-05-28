@@ -32,6 +32,11 @@ const SHARED_SECRET = "9f201af7a3ac8dc296481909bacc9242";
 
 // Maximum payload size (bytes). Rejects oversized requests early.
 const MAX_PAYLOAD_BYTES = 50000; // ~50 KB
+// Per-sheet cap for active registrations (excluding cancelled rows).
+const REGISTRATION_LIMITS = {
+  "May 31 Entries": 18,
+};
+const PENDING_SEAT_HOLD_MS = 5 * 60 * 1000; // 5 minutes
 // ---- END CONFIGURATION ----
 
 // ---- HELPERS ----
@@ -59,6 +64,54 @@ function sanitizeCell(value) {
 function findColumnIndex(headers, name) {
   const idx = headers.indexOf(name);
   return idx === -1 ? -1 : idx + 1;
+}
+
+function normalizePaymentStatus(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "pending") return "Pending";
+  if (normalized === "paid") return "Paid";
+  if (normalized === "expired") return "Expired";
+  return "";
+}
+
+function parseSheetDate(value) {
+  if (value instanceof Date) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return null;
+}
+
+function isPaymentRequired(value) {
+  return value === true || String(value).trim().toLowerCase() === "true";
+}
+
+function ensurePaymentColumns(sheet) {
+  ensureColumn(sheet, "RequiresPayment");
+  ensureColumn(sheet, "PaymentStatus");
+  ensureColumn(sheet, "PaymentStatusUpdatedAt");
+  ensureColumn(sheet, "SeatStatus");
+  ensureColumn(sheet, "PaidAt");
+}
+
+/**
+ * Decide whether a row should be treated as a real registration.
+ * Prefer a non-empty email column when available; otherwise require at least
+ * one non-empty non-metadata cell.
+ */
+function isMeaningfulRegistrationRow(headers, rowValues) {
+  const emailIndex = headers.indexOf("email");
+  if (emailIndex !== -1) {
+    return String(rowValues[emailIndex] ?? "").trim() !== "";
+  }
+
+  for (let i = 0; i < headers.length; i++) {
+    const header = String(headers[i] ?? "").trim();
+    if (header === "Timestamp" || header === "Status") continue;
+    if (String(rowValues[i] ?? "").trim() !== "") return true;
+  }
+  return false;
 }
 
 /**
@@ -115,6 +168,13 @@ function ensureColumn(sheet, colName) {
   return newIndex;
 }
 
+function writeKeyedRow(sheet, rowIndex, keys, values) {
+  for (let i = 0; i < keys.length; i++) {
+    const colIndex = ensureColumn(sheet, keys[i]);
+    sheet.getRange(rowIndex, colIndex).setValue(values[i]);
+  }
+}
+
 /**
  * Find the 1-based row index of the most recent CANCELLED registration for
  * the given email. Returns -1 if none exists.
@@ -146,6 +206,283 @@ function findCancelledRowByEmail(sheet, email) {
     }
   }
   return -1;
+}
+
+function findHoldStartForRow(sheet, rowIndex) {
+  const lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return null;
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const paymentUpdatedAtCol = findColumnIndex(headers, "PaymentStatusUpdatedAt");
+  const timestampCol = findColumnIndex(headers, "Timestamp");
+
+  const paymentUpdatedAt =
+    paymentUpdatedAtCol > 0 ? parseSheetDate(sheet.getRange(rowIndex, paymentUpdatedAtCol).getValue()) : null;
+  const createdAt = timestampCol > 0 ? parseSheetDate(sheet.getRange(rowIndex, timestampCol).getValue()) : null;
+  return paymentUpdatedAt || createdAt;
+}
+
+/**
+ * Count active (non-cancelled) registrations in the sheet.
+ */
+function countActiveRegistrations(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 0;
+
+  const lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return 0;
+
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const statusCol = findColumnIndex(headers, "Status");
+  const paymentStatusCol = findColumnIndex(headers, "PaymentStatus");
+  const paymentUpdatedAtCol = findColumnIndex(headers, "PaymentStatusUpdatedAt");
+  const requiresPaymentCol = findColumnIndex(headers, "RequiresPayment");
+  const timestampCol = findColumnIndex(headers, "Timestamp");
+  const numRows = lastRow - 1;
+  const allRows = sheet.getRange(2, 1, numRows, lastCol).getValues();
+
+  const nowMs = Date.now();
+  return allRows.reduce((count, rowValues) => {
+    // Cancelled entries never consume capacity.
+    if (statusCol > 0 && rowValues[statusCol - 1] === "Cancelled") return count;
+    // Ignore blank/incomplete rows so they cannot block registrations.
+    if (!isMeaningfulRegistrationRow(headers, rowValues)) return count;
+
+    // Legacy rows (before PaymentStatus) count as active registrations.
+    if (paymentStatusCol < 0) return count + 1;
+
+    if (requiresPaymentCol > 0 && !isPaymentRequired(rowValues[requiresPaymentCol - 1])) {
+      return count + 1;
+    }
+
+    const paymentStatus = normalizePaymentStatus(rowValues[paymentStatusCol - 1]);
+    if (paymentStatus === "Paid") return count + 1;
+    if (paymentStatus !== "Pending") return count;
+
+    const paymentUpdatedAt =
+      paymentUpdatedAtCol > 0 ? parseSheetDate(rowValues[paymentUpdatedAtCol - 1]) : null;
+    const createdAt = timestampCol > 0 ? parseSheetDate(rowValues[timestampCol - 1]) : null;
+    const holdStart = paymentUpdatedAt || createdAt;
+    if (!holdStart) return count;
+
+    return nowMs - holdStart.getTime() < PENDING_SEAT_HOLD_MS ? count + 1 : count;
+  }, 0);
+}
+
+function updateSeatStatusForPayment(sheet, rowIndex, normalizedPaymentStatus, sheetName) {
+  if (!normalizedPaymentStatus) return;
+  const seatStatusCol = ensureColumn(sheet, "SeatStatus");
+  const now = new Date();
+
+  if (normalizedPaymentStatus === "Pending") {
+    sheet.getRange(rowIndex, seatStatusCol).setValue("Pending");
+    return;
+  }
+
+  if (normalizedPaymentStatus === "Expired") {
+    sheet.getRange(rowIndex, seatStatusCol).setValue("Expired");
+    return;
+  }
+
+  if (normalizedPaymentStatus === "Paid") {
+    const limit = REGISTRATION_LIMITS[sheetName];
+    const hasLimit = typeof limit === "number";
+    const activeNow = countActiveRegistrations(sheet);
+    const statusCol = ensureColumn(sheet, "Status");
+    const isCancelled = sheet.getRange(rowIndex, statusCol).getValue() === "Cancelled";
+
+    // If row is cancelled, keep seat status unchanged.
+    if (isCancelled) return;
+
+    // Keep late payments distinguishable when capacity is already fully consumed.
+    const paidAtCol = ensureColumn(sheet, "PaidAt");
+    sheet.getRange(rowIndex, paidAtCol).setValue(now);
+
+    const nextSeatStatus =
+      hasLimit && activeNow >= limit ? "Confirmed (Late Payment)" : "Confirmed";
+    sheet.getRange(rowIndex, seatStatusCol).setValue(nextSeatStatus);
+  }
+}
+
+function expireStalePendingRows(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 0;
+
+  const lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return 0;
+
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const statusCol = findColumnIndex(headers, "Status");
+  const paymentStatusCol = findColumnIndex(headers, "PaymentStatus");
+  const paymentUpdatedAtCol = findColumnIndex(headers, "PaymentStatusUpdatedAt");
+  const requiresPaymentCol = findColumnIndex(headers, "RequiresPayment");
+  const timestampCol = findColumnIndex(headers, "Timestamp");
+  if (paymentStatusCol < 0) return 0;
+
+  const now = new Date();
+  const nowMs = now.getTime();
+  const numRows = lastRow - 1;
+  const allRows = sheet.getRange(2, 1, numRows, lastCol).getValues();
+  const toExpire = [];
+
+  for (let i = 0; i < allRows.length; i++) {
+    const rowValues = allRows[i];
+    if (statusCol > 0 && rowValues[statusCol - 1] === "Cancelled") continue;
+    if (!isMeaningfulRegistrationRow(headers, rowValues)) continue;
+    if (requiresPaymentCol > 0 && !isPaymentRequired(rowValues[requiresPaymentCol - 1])) continue;
+
+    const paymentStatus = normalizePaymentStatus(rowValues[paymentStatusCol - 1]);
+    if (paymentStatus !== "Pending") continue;
+
+    const paymentUpdatedAt =
+      paymentUpdatedAtCol > 0 ? parseSheetDate(rowValues[paymentUpdatedAtCol - 1]) : null;
+    const createdAt = timestampCol > 0 ? parseSheetDate(rowValues[timestampCol - 1]) : null;
+    const holdStart = paymentUpdatedAt || createdAt;
+    if (!holdStart) continue;
+
+    if (nowMs - holdStart.getTime() >= PENDING_SEAT_HOLD_MS) {
+      toExpire.push(i + 2);
+    }
+  }
+
+  if (toExpire.length === 0) return 0;
+
+  const seatStatusCol = ensureColumn(sheet, "SeatStatus");
+  for (const rowIndex of toExpire) {
+    sheet.getRange(rowIndex, paymentStatusCol).setValue("Expired");
+    if (paymentUpdatedAtCol > 0) {
+      sheet.getRange(rowIndex, paymentUpdatedAtCol).setValue(now);
+    }
+    sheet.getRange(rowIndex, seatStatusCol).setValue("Expired");
+  }
+
+  return toExpire.length;
+}
+
+/**
+ * Return current capacity state for a sheet.
+ */
+function handleStatus(sheetName, sheet) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    ensurePaymentColumns(sheet);
+    expireStalePendingRows(sheet);
+    const limit = REGISTRATION_LIMITS[sheetName];
+    const activeRegistrations = countActiveRegistrations(sheet);
+    const hasLimit = typeof limit === "number";
+    const isFull = hasLimit ? activeRegistrations >= limit : false;
+
+    return jsonResponse({
+      success: true,
+      hasLimit,
+      limit: hasLimit ? limit : null,
+      activeRegistrations,
+      isFull,
+      message: isFull
+        ? "Registrations are paused because the event is full. Please contact the organisers if you wish to register."
+        : "",
+    });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function handleReserve(data, sheetName, sheet) {
+  const email = data.email;
+  if (!email) return jsonResponse({ success: false, error: "Missing email" });
+  if (!isPaymentRequired(data.requiresPayment)) {
+    return handleStatus(sheetName, sheet);
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    ensurePaymentColumns(sheet);
+    expireStalePendingRows(sheet);
+
+    const limit = REGISTRATION_LIMITS[sheetName];
+    if (typeof limit === "number" && countActiveRegistrations(sheet) >= limit) {
+      return jsonResponse({
+        success: false,
+        error: "full",
+        message: "Registrations are paused because the event is full. Please contact the organisers if you wish to register.",
+      });
+    }
+
+    const headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
+    const activeRow = findActiveRowByEmail(sheet, email);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + PENDING_SEAT_HOLD_MS).toISOString();
+
+    if (activeRow > 0) {
+      const paymentStatusCol = findColumnIndex(headers, "PaymentStatus");
+      const paymentStatus =
+        paymentStatusCol > 0 ? normalizePaymentStatus(sheet.getRange(activeRow, paymentStatusCol).getValue()) : "";
+
+      if (paymentStatus === "Paid") {
+        return jsonResponse({
+          success: false,
+          error: "duplicate",
+          message: "This email has already been registered for this event.",
+        });
+      }
+
+      const holdStart = findHoldStartForRow(sheet, activeRow);
+      const holdStillValid = holdStart && now.getTime() - holdStart.getTime() < PENDING_SEAT_HOLD_MS;
+      if (paymentStatus === "Pending" && holdStillValid) {
+        return jsonResponse({ success: true, row: activeRow, expiresAt });
+      }
+
+      const requiresPaymentCol = ensureColumn(sheet, "RequiresPayment");
+      const paymentStatusUpdatedAtCol = ensureColumn(sheet, "PaymentStatusUpdatedAt");
+      const seatStatusCol = ensureColumn(sheet, "SeatStatus");
+      sheet.getRange(activeRow, requiresPaymentCol).setValue("true");
+      sheet.getRange(activeRow, paymentStatusCol).setValue("Pending");
+      sheet.getRange(activeRow, paymentStatusUpdatedAtCol).setValue(now);
+      sheet.getRange(activeRow, seatStatusCol).setValue("Pending");
+      return jsonResponse({ success: true, row: activeRow, expiresAt });
+    }
+
+    const reserveFields = Array.isArray(data.reserveFields)
+      ? data.reserveFields.filter(function (field) {
+          return typeof field === "string" && field.trim() !== "";
+        })
+      : [];
+
+    const reservePayload = {
+      username: data.username || "",
+      memberType: data.memberType || "",
+      email,
+      formId: data.formId || "",
+      requiresPayment: "true",
+    };
+    for (let i = 0; i < reserveFields.length; i++) {
+      if (!(reserveFields[i] in reservePayload)) {
+        reservePayload[reserveFields[i]] = "";
+      }
+    }
+    const keys = ["Timestamp"];
+    const values = [now];
+    for (const key of Object.keys(reservePayload)) {
+      keys.push(sanitizeCell(String(key)));
+      values.push(sanitizeCell(reservePayload[key]));
+    }
+
+    const appendedRow = Math.max(sheet.getLastRow(), 1) + 1;
+    writeKeyedRow(sheet, appendedRow, keys, values);
+    const requiresPaymentCol = ensureColumn(sheet, "RequiresPayment");
+    const paymentStatusCol = ensureColumn(sheet, "PaymentStatus");
+    const paymentStatusUpdatedAtCol = ensureColumn(sheet, "PaymentStatusUpdatedAt");
+    const seatStatusCol = ensureColumn(sheet, "SeatStatus");
+    sheet.getRange(appendedRow, requiresPaymentCol).setValue("true");
+    sheet.getRange(appendedRow, paymentStatusCol).setValue("Pending");
+    sheet.getRange(appendedRow, paymentStatusUpdatedAtCol).setValue(now);
+    sheet.getRange(appendedRow, seatStatusCol).setValue("Pending");
+
+    return jsonResponse({ success: true, row: appendedRow, expiresAt });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ---- ACTION HANDLERS ----
@@ -202,9 +539,22 @@ function handleUpdate(data, sheet) {
       return jsonResponse({ success: false, error: "Registration not found" });
     }
 
+    let nextPaymentStatus = "";
     for (const key of Object.keys(updates)) {
       const colIndex = ensureColumn(sheet, key);
-      sheet.getRange(rowIndex, colIndex).setValue(sanitizeCell(String(updates[key])));
+      if (key === "PaymentStatus") {
+        nextPaymentStatus = normalizePaymentStatus(updates[key]);
+        if (!nextPaymentStatus) continue;
+        sheet.getRange(rowIndex, colIndex).setValue(nextPaymentStatus);
+      } else {
+        sheet.getRange(rowIndex, colIndex).setValue(sanitizeCell(String(updates[key])));
+      }
+    }
+
+    if (nextPaymentStatus) {
+      const paymentUpdatedAtCol = ensureColumn(sheet, "PaymentStatusUpdatedAt");
+      sheet.getRange(rowIndex, paymentUpdatedAtCol).setValue(new Date());
+      updateSeatStatusForPayment(sheet, rowIndex, nextPaymentStatus, data.sheetTab || "Sheet1");
     }
 
     const updatedAtCol = ensureColumn(sheet, "UpdatedAt");
@@ -247,6 +597,8 @@ function doPost(e) {
 
     // Dispatch on action
     const action = data.action || "submit";
+    if (action === "status") return handleStatus(sheetName, sheet);
+    if (action === "reserve") return handleReserve(data, sheetName, sheet);
     if (action === "cancel") return handleCancel(data, sheet);
     if (action === "update") return handleUpdate(data, sheet);
 
@@ -270,42 +622,81 @@ function doPost(e) {
     lock.waitLock(10000);
 
     try {
-      // ---- DUPLICATE CHECK (by email, skipping cancelled rows) ----
+      ensurePaymentColumns(sheet);
       const email = data.email;
-      if (email) {
-        const lastRow = sheet.getLastRow();
-        if (lastRow > 1) {
+      const requiresPayment = isPaymentRequired(data.requiresPayment);
+      const limit = REGISTRATION_LIMITS[sheetName];
+      expireStalePendingRows(sheet);
+
+      if (requiresPayment && email) {
+        const existingRow = findActiveRowByEmail(sheet, email);
+        if (existingRow > 0) {
           const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-          const emailCol = findColumnIndex(headers, "email");
-          const statusCol = findColumnIndex(headers, "Status");
+          const paymentStatusCol = findColumnIndex(headers, "PaymentStatus");
+          const paymentStatus =
+            paymentStatusCol > 0
+              ? normalizePaymentStatus(sheet.getRange(existingRow, paymentStatusCol).getValue())
+              : "";
+          const holdStart = findHoldStartForRow(sheet, existingRow);
+          const holdStillValid =
+            holdStart && new Date().getTime() - holdStart.getTime() < PENDING_SEAT_HOLD_MS;
 
-          if (emailCol > 0) {
-            const numRows = lastRow - 1;
-            const emailValues = sheet.getRange(2, emailCol, numRows, 1).getValues();
-            const statusValues =
-              statusCol > 0
-                ? sheet.getRange(2, statusCol, numRows, 1).getValues()
-                : null;
-
-            for (let j = 0; j < emailValues.length; j++) {
-              // Skip cancelled rows — they are allowed to re-register
-              if (statusValues?.[j][0] === "Cancelled") continue;
-              if (
-                String(emailValues[j][0]).toLowerCase() ===
-                String(email).toLowerCase()
-              ) {
-                lock.releaseLock();
-                return jsonResponse({
-                  success: false,
-                  error: "duplicate",
-                  message: "This email has already been registered for this event.",
-                });
-              }
+          if (paymentStatus === "Pending" && holdStillValid) {
+            for (let k = 0; k < keys.length; k++) {
+              const colIdx = ensureColumn(sheet, keys[k]);
+              sheet.getRange(existingRow, colIdx).setValue(values[k]);
             }
+            const requiresPaymentCol = ensureColumn(sheet, "RequiresPayment");
+            const paymentStatusUpdatedAtCol = ensureColumn(sheet, "PaymentStatusUpdatedAt");
+            const paidAtCol = ensureColumn(sheet, "PaidAt");
+            sheet.getRange(existingRow, requiresPaymentCol).setValue("true");
+            sheet.getRange(existingRow, paymentStatusCol).setValue("Paid");
+            sheet.getRange(existingRow, paymentStatusUpdatedAtCol).setValue(new Date());
+            sheet.getRange(existingRow, paidAtCol).setValue(new Date());
+            updateSeatStatusForPayment(sheet, existingRow, "Paid", sheetName);
+            lock.releaseLock();
+            return jsonResponse({ success: true, row: existingRow });
           }
+
+          if (paymentStatus === "Pending" && !holdStillValid) {
+            lock.releaseLock();
+            return jsonResponse({
+              success: false,
+              error: "hold_expired",
+              message: "Your 5-minute payment window has expired. Please try again.",
+            });
+          }
+
+          lock.releaseLock();
+          return jsonResponse({
+            success: false,
+            error: "duplicate",
+            message: "This email has already been registered for this event.",
+          });
         }
       }
+
+      // ---- DUPLICATE CHECK (by email, skipping cancelled rows) ----
+      if (email && findActiveRowByEmail(sheet, email) > 0) {
+        lock.releaseLock();
+        return jsonResponse({
+          success: false,
+          error: "duplicate",
+          message: "This email has already been registered for this event.",
+        });
+      }
       // ---- END DUPLICATE CHECK ----
+
+      // ---- CAPACITY CHECK ----
+      if (typeof limit === "number" && countActiveRegistrations(sheet) >= limit) {
+        lock.releaseLock();
+        return jsonResponse({
+          success: false,
+          error: "full",
+          message: "Registrations are paused because the event is full. Please contact the organisers if you wish to register.",
+        });
+      }
+      // ---- END CAPACITY CHECK ----
 
       // If a cancelled row exists for this email, reactivate it in place
       // instead of appending a new row.
@@ -319,20 +710,48 @@ function doPost(e) {
           // Clear the Status column so the row is active again
           const statusCol = ensureColumn(sheet, "Status");
           sheet.getRange(cancelledRow, statusCol).setValue("");
+          const requiresPaymentCol = ensureColumn(sheet, "RequiresPayment");
+          const paymentStatusCol = ensureColumn(sheet, "PaymentStatus");
+          const paymentStatusUpdatedAtCol = ensureColumn(sheet, "PaymentStatusUpdatedAt");
+          const seatStatusCol = ensureColumn(sheet, "SeatStatus");
+          const paidAtCol = ensureColumn(sheet, "PaidAt");
+          sheet.getRange(cancelledRow, requiresPaymentCol).setValue(
+            requiresPayment ? "true" : "false"
+          );
+          sheet.getRange(cancelledRow, paymentStatusCol).setValue(
+            "Paid"
+          );
+          sheet.getRange(cancelledRow, paymentStatusUpdatedAtCol).setValue(new Date());
+          sheet.getRange(cancelledRow, seatStatusCol).setValue(
+            "Confirmed"
+          );
+          sheet.getRange(cancelledRow, paidAtCol).setValue(new Date());
           lock.releaseLock();
           return jsonResponse({ success: true, row: cancelledRow });
         }
       }
 
-      // No prior cancelled row — write headers on first submission and append
-      if (sheet.getLastRow() === 0) {
-        sheet.appendRow(keys);
-      }
-
-      sheet.appendRow(values);
+      const appendedRow = Math.max(sheet.getLastRow(), 1) + 1;
+      writeKeyedRow(sheet, appendedRow, keys, values);
+      const requiresPaymentCol = ensureColumn(sheet, "RequiresPayment");
+      const paymentStatusCol = ensureColumn(sheet, "PaymentStatus");
+      const paymentStatusUpdatedAtCol = ensureColumn(sheet, "PaymentStatusUpdatedAt");
+      const seatStatusCol = ensureColumn(sheet, "SeatStatus");
+      const paidAtCol = ensureColumn(sheet, "PaidAt");
+      sheet.getRange(appendedRow, requiresPaymentCol).setValue(
+        requiresPayment ? "true" : "false"
+      );
+      sheet.getRange(appendedRow, paymentStatusCol).setValue(
+        "Paid"
+      );
+      sheet.getRange(appendedRow, paymentStatusUpdatedAtCol).setValue(new Date());
+      sheet.getRange(appendedRow, seatStatusCol).setValue(
+        "Confirmed"
+      );
+      sheet.getRange(appendedRow, paidAtCol).setValue(new Date());
       lock.releaseLock();
 
-      return jsonResponse({ success: true, row: sheet.getLastRow() });
+      return jsonResponse({ success: true, row: appendedRow });
     } catch (innerError) {
       lock.releaseLock();
       throw innerError;

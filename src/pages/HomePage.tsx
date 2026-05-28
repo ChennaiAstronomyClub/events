@@ -2,12 +2,8 @@ import { Link, useLocation } from "react-router-dom";
 import { formConfigs, getRegistrationStatus } from "@/config/forms";
 import { useAuth } from "@/hooks/useAuth";
 import { storage } from "@/lib/storage";
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { EventDescription } from "@/components/events/EventDescription";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { NoticeAlert } from "@/components/notices/NoticeAlert";
@@ -28,7 +24,9 @@ function formatDateTime(isoString?: string): string {
 export function HomePage() {
   const location = useLocation();
   const { user } = useAuth();
-  const cancelledFormTitle = (location.state as { cancelled?: string } | null)?.cancelled;
+  const routeState = (location.state as { cancelled?: string; paymentConfirmed?: string } | null) ?? null;
+  const cancelledFormTitle = routeState?.cancelled;
+  const paymentConfirmedFormTitle = routeState?.paymentConfirmed;
 
   return (
     <div className="space-y-8">
@@ -39,9 +37,16 @@ export function HomePage() {
           </AlertDescription>
         </Alert>
       )}
+      {paymentConfirmedFormTitle && (
+        <Alert>
+          <AlertDescription>
+            Payment received for &ldquo;{paymentConfirmedFormTitle}&rdquo;. Your seat is confirmed.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="text-center">
-        <h1 className="text-3xl font-bold">Our Upcoming Events</h1>
+        <h1 className="text-3xl font-bold">Registrations</h1>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -74,39 +79,55 @@ export function HomePage() {
           }
 
           return (
-            <Card key={form.id}>
-              <CardHeader>
+            <Card key={form.id} className="h-full">
+              <CardHeader className="flex flex-1 flex-col">
                 <CardTitle>{form.title}</CardTitle>
-                {form.description && (
-                  <CardDescription>{form.description}</CardDescription>
+                {(form.description || form.talkTitle) && (
+                  <EventDescription
+                    description={form.description}
+                    talkTitle={form.talkTitle}
+                    talkSpeaker={form.talkSpeaker}
+                  />
                 )}
-                {form.startTime && form.endTime && (
+                {(form.startTime && form.endTime) || form.feeInfo ? (
                   <div className="mt-2 space-y-1 text-sm text-muted-foreground">
-                    <p>
-                      <span className="font-semibold">Start:</span>{" "}
-                      {formatDateTime(form.startTime)}
-                    </p>
-                    <p>
-                      <span className="font-semibold">End:</span>{" "}
-                      {formatDateTime(form.endTime)}
-                    </p>
+                    {form.startTime && (
+                      <p>
+                        <span className="font-semibold">Start:</span>{" "}
+                        {formatDateTime(form.startTime)}
+                      </p>
+                    )}
+                    {form.endTime && (
+                      <p>
+                        <span className="font-semibold">End:</span>{" "}
+                        {formatDateTime(form.endTime)}
+                      </p>
+                    )}
+                    {form.feeInfo && (
+                      <p>
+                        <span className="font-semibold">Fee:</span>{" "}
+                        {form.feeInfo}
+                      </p>
+                    )}
                   </div>
-                )}
+                ) : null}
+                <NoticeAlert formId={form.id} />
+              </CardHeader>
+              <CardFooter className="pt-0">
                 {buttonDisabled ? (
                   <Button
-                    className="mt-4"
+                    className="w-full"
                     variant={buttonVariant}
                     disabled
                   >
                     {buttonLabel}
                   </Button>
                 ) : (
-                  <Button asChild className="mt-4" variant={buttonVariant}>
+                  <Button asChild className="w-full" variant={buttonVariant}>
                     <Link to={`/form/${form.id}`}>{buttonLabel}</Link>
                   </Button>
                 )}
-                <NoticeAlert formId={form.id} />
-              </CardHeader>
+              </CardFooter>
             </Card>
           );
         })}

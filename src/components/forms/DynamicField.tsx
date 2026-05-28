@@ -41,6 +41,22 @@ export function DynamicField({ field, readOnly }: DynamicFieldProps) {
           {readOnly && <Lock className="h-3 w-3 text-muted-foreground" />}
         </Label>
       )}
+      {field.type !== "checkbox" && (field.helperText || field.helperLinkUrl) && (
+        <p className="mb-2 text-xs text-muted-foreground">
+          {field.helperText}
+          {field.helperText && field.helperLinkUrl ? " " : ""}
+          {field.helperLinkUrl && (
+            <a
+              href={field.helperLinkUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-primary underline underline-offset-2"
+            >
+              {field.helperLinkLabel || "Open link"}
+            </a>
+          )}
+        </p>
+      )}
 
       {field.type === "textarea" ? (
         <Textarea

@@ -23,13 +23,13 @@ export function useFormSubmit() {
   async function submit(
     sheetTab: string,
     formData: Record<string, unknown>,
-    username: string,
-    memberType: string
+    apiKey: string,
+    options?: { formId?: string; requiresPayment?: boolean }
   ) {
     setState({ isSubmitting: true, isSuccess: false, isDuplicate: false, error: null });
 
     try {
-      const result = await submitToSheets(sheetTab, formData, username, memberType);
+      const result = await submitToSheets(sheetTab, formData, apiKey, options);
       if (result.success) {
         setState({ isSubmitting: false, isSuccess: true, isDuplicate: false, error: null });
       } else {

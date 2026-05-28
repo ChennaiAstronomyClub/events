@@ -31,12 +31,6 @@ export const APP_NAME = optionalEnv("VITE_APP_NAME", "CAC Forms");
 /** Discourse group name whose members are considered "verified" */
 export const VERIFIED_GROUP_NAME = optionalEnv("VITE_VERIFIED_GROUP_NAME", "verified-members");
 
-/** Google Apps Script web-app URL */
-export const APPS_SCRIPT_URL = requireEnv("VITE_APPS_SCRIPT_URL");
-
-/** Shared secret for the Apps Script proxy */
-export const SHEETS_SECRET = requireEnv("VITE_SHEETS_SECRET");
-
 /** Optional Google Form URL shown to non-members */
 export const GOOGLE_FORM_URL = optionalEnv("VITE_GOOGLE_FORM_URL");
 
