@@ -30,6 +30,7 @@ interface DynamicFormProps {
     fieldsToSave: SaveToProfileField[]
   ) => void | Promise<void>;
   isSubmitting?: boolean;
+  submitDisabled?: boolean;
 }
 
 export interface SaveToProfileField {
@@ -217,7 +218,13 @@ function getDefaultValue(field: FormFieldConfig, user: DiscourseUser): unknown {
 
 // ---- Component ----
 
-export function DynamicForm({ config, user, onSubmit, isSubmitting }: DynamicFormProps) {
+export function DynamicForm({
+  config,
+  user,
+  onSubmit,
+  isSubmitting,
+  submitDisabled,
+}: DynamicFormProps) {
   const isVerified = isVerifiedUser(user.groups);
   const [saveToProfile, setSaveToProfile] = useState(true);
 
@@ -341,6 +348,7 @@ export function DynamicForm({ config, user, onSubmit, isSubmitting }: DynamicFor
       feeInfo={config.feeInfo}
       submitLabel={config.submitLabel}
       isSubmitting={isSubmitting}
+      submitDisabled={submitDisabled}
       onSubmit={methods.handleSubmit((data) => handleFormSubmit(data as Record<string, unknown>))}
     >
       <FormProvider {...methods}>

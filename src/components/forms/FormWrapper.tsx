@@ -14,6 +14,7 @@ interface FormWrapperProps {
   feeInfo?: FormConfig["feeInfo"];
   submitLabel?: string;
   isSubmitting?: boolean;
+  submitDisabled?: boolean;
   onSubmit: (e: FormEvent) => void;
   children: ReactNode;
 }
@@ -41,6 +42,7 @@ export function FormWrapper({
   feeInfo,
   submitLabel = "Submit",
   isSubmitting,
+  submitDisabled = false,
   onSubmit,
   children,
 }: FormWrapperProps) {
@@ -78,7 +80,7 @@ export function FormWrapper({
       <CardContent>
         <form onSubmit={onSubmit} className="space-y-6">
           {children}
-          <Button type="submit" disabled={isSubmitting} className="w-full">
+          <Button type="submit" disabled={isSubmitting || submitDisabled} className="w-full">
             {isSubmitting ? "Submitting..." : submitLabel}
           </Button>
         </form>

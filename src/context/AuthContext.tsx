@@ -25,13 +25,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     error: null,
   });
 
-  // Restore session on mount
+  // Restore session on mount — show cached profile immediately, refresh in background
   useEffect(() => {
     const apiKey = storage.getApiKey();
     if (!apiKey) {
       storage.clearUser(); // Clean up stale user data from localStorage
       setState((s) => ({ ...s, isLoading: false }));
       return;
+    }
+
+    const cached = storage.getUser<DiscourseUser>();
+    if (cached?.username && cached?.email) {
+      setState({
+        isAuthenticated: true,
+        isLoading: false,
+        user: cached,
+        apiKey,
+        error: null,
+      });
     }
 
     fetchFullUser(apiKey)
@@ -46,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
       })
       .catch(() => {
-        // API key expired or invalid
+        if (cached?.username && cached?.email) return;
         storage.clearAll();
         setState({
           isAuthenticated: false,

@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { useFormContext } from "react-hook-form";
 import type { FormFieldConfig } from "@/types/forms";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -10,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Lock } from "lucide-react";
+import { Check, Copy, Lock } from "lucide-react";
 
 interface DynamicFieldProps {
   field: FormFieldConfig;
@@ -27,8 +29,19 @@ export function DynamicField({ field, readOnly }: DynamicFieldProps) {
 
   const error = errors[field.name];
   const value = watch(field.name);
+  const [copied, setCopied] = useState(false);
 
   const baseClass = readOnly ? "bg-muted cursor-not-allowed" : "";
+
+  async function copyHelperValue(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore — clipboard may be unavailable
+    }
+  }
 
   return (
     <div className={`flex flex-col${field.fullWidth ? " col-span-full" : ""}`}>
@@ -41,7 +54,8 @@ export function DynamicField({ field, readOnly }: DynamicFieldProps) {
           {readOnly && <Lock className="h-3 w-3 text-muted-foreground" />}
         </Label>
       )}
-      {field.type !== "checkbox" && (field.helperText || field.helperLinkUrl || field.helperImageUrl) && (
+      {field.type !== "checkbox" &&
+        (field.helperText || field.helperLinkUrl || field.copyableValue || field.helperImageUrl) && (
         <div className="mb-3 space-y-2">
           {(field.helperText || field.helperLinkUrl) && (
             <p className="text-xs text-muted-foreground">
@@ -58,6 +72,34 @@ export function DynamicField({ field, readOnly }: DynamicFieldProps) {
                 </a>
               )}
             </p>
+          )}
+          {field.copyableValue && (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-xs text-muted-foreground">
+                {field.copyableLabel ?? "UPI ID"}:
+              </span>
+              <code className="rounded-md bg-muted px-2 py-1 font-mono text-xs text-foreground">
+                {field.copyableValue}
+              </code>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={() => copyHelperValue(field.copyableValue!)}
+              >
+                {copied ? (
+                  <>
+                    <Check />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy />
+                    Copy
+                  </>
+                )}
+              </Button>
+            </div>
           )}
           {field.helperImageUrl && (
             <img

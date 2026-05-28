@@ -19,6 +19,9 @@ export interface FormFieldConfig {
   helperText?: string;
   helperLinkLabel?: string;
   helperLinkUrl?: string;
+  /** Value shown with a copy button (e.g. UPI ID) */
+  copyableValue?: string;
+  copyableLabel?: string;
   /** Optional image shown below helper text (e.g. UPI QR code) */
   helperImageUrl?: string;
   helperImageAlt?: string;

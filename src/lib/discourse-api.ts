@@ -7,6 +7,8 @@ interface CurrentUserResponse {
     username: string;
     name: string;
     trust_level: number;
+    email?: string;
+    groups?: { id: number; name: string; display_name?: string }[];
   };
 }
 
@@ -52,9 +54,27 @@ export async function fetchUserProfile(
   return data.user;
 }
 
+/**
+ * Load the logged-in user. Uses session/current only when email + groups are present;
+ * otherwise falls back to one profile fetch (two round-trips total).
+ */
 export async function fetchFullUser(apiKey: string): Promise<DiscourseUser> {
-  const { username } = await fetchCurrentUser(apiKey);
-  return fetchUserProfile(username, apiKey);
+  const session = await discourseGet<CurrentUserResponse>("/session/current.json", apiKey);
+  const cu = session.current_user;
+  if (cu.email) {
+    return {
+      id: cu.id,
+      username: cu.username,
+      name: cu.name,
+      email: cu.email,
+      avatar_template: "",
+      trust_level: cu.trust_level,
+      bio_raw: "",
+      user_fields: {},
+      groups: Array.isArray(cu.groups) ? cu.groups : [],
+    };
+  }
+  return fetchUserProfile(cu.username, apiKey);
 }
 
 /**

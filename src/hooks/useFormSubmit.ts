@@ -4,6 +4,8 @@
  */
 import { useState } from "react";
 import { submitToSheets } from "@/lib/google-sheets";
+import { registrationErrorMessage } from "@/lib/registration-errors";
+import type { DiscourseUser } from "@/types/discourse";
 
 interface SubmitState {
   isSubmitting: boolean;
@@ -24,7 +26,7 @@ export function useFormSubmit() {
     sheetTab: string,
     formData: Record<string, unknown>,
     apiKey: string,
-    options?: { formId?: string; requiresPayment?: boolean }
+    options?: { formId?: string; requiresPayment?: boolean; user?: DiscourseUser | null }
   ) {
     setState({ isSubmitting: true, isSuccess: false, isDuplicate: false, error: null });
 
@@ -38,7 +40,7 @@ export function useFormSubmit() {
           isSubmitting: false,
           isSuccess: false,
           isDuplicate,
-          error: result.message || result.error || "Submission failed",
+          error: registrationErrorMessage(result.error, result.message),
         });
       }
       return result;

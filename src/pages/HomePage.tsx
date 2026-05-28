@@ -24,8 +24,14 @@ function formatDateTime(isoString?: string): string {
 export function HomePage() {
   const location = useLocation();
   const { user } = useAuth();
-  const routeState = (location.state as { cancelled?: string; paymentConfirmed?: string } | null) ?? null;
+  const routeState =
+    (location.state as {
+      cancelled?: string;
+      holdExpired?: string;
+      paymentConfirmed?: string;
+    } | null) ?? null;
   const cancelledFormTitle = routeState?.cancelled;
+  const holdExpiredFormTitle = routeState?.holdExpired;
   const paymentConfirmedFormTitle = routeState?.paymentConfirmed;
 
   return (
@@ -34,6 +40,14 @@ export function HomePage() {
         <Alert>
           <AlertDescription>
             Your registration for &ldquo;{cancelledFormTitle}&rdquo; has been cancelled.
+          </AlertDescription>
+        </Alert>
+      )}
+      {holdExpiredFormTitle && (
+        <Alert variant="destructive">
+          <AlertDescription>
+            Your seat hold for &ldquo;{holdExpiredFormTitle}&rdquo; expired after 5 minutes.
+            Open the form again to reserve a new seat if spots are still available.
           </AlertDescription>
         </Alert>
       )}

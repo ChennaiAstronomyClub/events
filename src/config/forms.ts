@@ -10,6 +10,7 @@ export const formConfigs: FormConfig[] = [
   {
     id: "city-meetup-may-31",
     requiresPayment: true,
+    registrationOpensAt: "2026-05-29T08:30:00",
     title: "City Meetup Series",
     talkTitle: "Studying Undead Stars to Understand Theories of Physics",
     talkSpeaker: "Prof. Manjari Bagchi, IMSc",
@@ -45,9 +46,9 @@ export const formConfigs: FormConfig[] = [
       {
         name: "upiReferenceLast4",
         label: "Complete payment, then enter the last 4 digits of your transaction ID",
-        helperText: "Pay INR 200 via UPI (scan QR or use the link). UPI ID: sivasubramanyamicici@ybl",
-        helperLinkLabel: "Open UPI payment",
-        helperLinkUrl: "upi://pay?pa=sivasubramanyamicici@ybl&pn=Sivasubramanyam&cu=INR&am=200",
+        helperText: "Pay INR 200 via UPI — scan the QR code or copy the UPI ID below.",
+        copyableValue: "sivasubramanyamicici@ybl",
+        copyableLabel: "UPI ID",
         helperImageUrl: "/payment/phonepe-qr.png",
         helperImageAlt: "PhonePe QR code for SIVASUBRAMANYAM A",
         fullWidth: true,
