@@ -45,7 +45,7 @@ export const formConfigs: FormConfig[] = [
       {
         name: "upiReferenceLast4",
         label: "Complete payment, then enter the last 4 digits of your transaction ID",
-        helperText: "Pay via UPI:",
+        helperText: "Pay via UPI to sivasubramanyamicici@ybl",
         helperLinkLabel: "Open UPI payment",
         helperLinkUrl: "upi://pay?pa=sivasubramanyamicici@ybl&pn=Sivasubramanyam&cu=INR",
         type: "text",
