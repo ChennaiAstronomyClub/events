@@ -45,9 +45,12 @@ export const formConfigs: FormConfig[] = [
       {
         name: "upiReferenceLast4",
         label: "Complete payment, then enter the last 4 digits of your transaction ID",
-        helperText: "Pay via UPI to sivasubramanyamicici@ybl",
+        helperText: "Pay INR 200 via UPI (scan QR or use the link). UPI ID: sivasubramanyamicici@ybl",
         helperLinkLabel: "Open UPI payment",
-        helperLinkUrl: "upi://pay?pa=sivasubramanyamicici@ybl&pn=Sivasubramanyam&cu=INR",
+        helperLinkUrl: "upi://pay?pa=sivasubramanyamicici@ybl&pn=Sivasubramanyam&cu=INR&am=200",
+        helperImageUrl: "/payment/phonepe-qr.png",
+        helperImageAlt: "PhonePe QR code for SIVASUBRAMANYAM A",
+        fullWidth: true,
         type: "text",
         required: true,
         validation: {

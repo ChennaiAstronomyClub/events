@@ -19,6 +19,9 @@ export interface FormFieldConfig {
   helperText?: string;
   helperLinkLabel?: string;
   helperLinkUrl?: string;
+  /** Optional image shown below helper text (e.g. UPI QR code) */
+  helperImageUrl?: string;
+  helperImageAlt?: string;
   placeholder?: string;
   required?: boolean;
   validation?: FieldValidation;

@@ -41,21 +41,32 @@ export function DynamicField({ field, readOnly }: DynamicFieldProps) {
           {readOnly && <Lock className="h-3 w-3 text-muted-foreground" />}
         </Label>
       )}
-      {field.type !== "checkbox" && (field.helperText || field.helperLinkUrl) && (
-        <p className="mb-2 text-xs text-muted-foreground">
-          {field.helperText}
-          {field.helperText && field.helperLinkUrl ? " " : ""}
-          {field.helperLinkUrl && (
-            <a
-              href={field.helperLinkUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="font-medium text-primary underline underline-offset-2"
-            >
-              {field.helperLinkLabel || "Open link"}
-            </a>
+      {field.type !== "checkbox" && (field.helperText || field.helperLinkUrl || field.helperImageUrl) && (
+        <div className="mb-3 space-y-2">
+          {(field.helperText || field.helperLinkUrl) && (
+            <p className="text-xs text-muted-foreground">
+              {field.helperText}
+              {field.helperText && field.helperLinkUrl ? " " : ""}
+              {field.helperLinkUrl && (
+                <a
+                  href={field.helperLinkUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-primary underline underline-offset-2"
+                >
+                  {field.helperLinkLabel || "Open link"}
+                </a>
+              )}
+            </p>
           )}
-        </p>
+          {field.helperImageUrl && (
+            <img
+              src={field.helperImageUrl}
+              alt={field.helperImageAlt || "Payment QR code"}
+              className="mx-auto max-h-64 w-auto rounded-md border border-border bg-white p-2"
+            />
+          )}
+        </div>
       )}
 
       {field.type === "textarea" ? (
