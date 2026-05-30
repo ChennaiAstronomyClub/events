@@ -11,6 +11,7 @@ export const formConfigs: FormConfig[] = [
     id: "city-meetup-may-31",
     requiresPayment: true,
     registrationOpensAt: "2026-05-29T08:30:00",
+    registrationClosesAt: "2026-05-30T00:00:00",
     title: "City Meetup Series",
     talkTitle: "Studying Undead Stars to Understand Theories of Physics",
     talkSpeaker: "Prof. Manjari Bagchi, IMSc",
