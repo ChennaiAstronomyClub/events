@@ -11,23 +11,27 @@ import { Button } from "@/components/ui/button";
 interface SuccessState {
   formTitle?: string;
   verifiedSuccess?: VerifiedSuccessInfo;
+  backfillComplete?: boolean;
 }
 
 export function SuccessPage() {
   const location = useLocation();
-  const { formTitle, verifiedSuccess } = (location.state as SuccessState) || {};
+  const { formTitle, verifiedSuccess, backfillComplete } =
+    (location.state as SuccessState) || {};
 
   return (
     <div className="flex items-center justify-center py-12">
       <Card className="max-w-md">
         <CardHeader>
-          <CardTitle>Submission Successful</CardTitle>
+          <CardTitle>{backfillComplete ? "Details Saved" : "Submission Successful"}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-muted-foreground">
-            {formTitle
-              ? `Your ${formTitle} has been submitted successfully.`
-              : "Your form has been submitted successfully."}
+            {backfillComplete
+              ? "Your missing registration details have been saved. Thank you!"
+              : formTitle
+                ? `Your ${formTitle} has been submitted successfully.`
+                : "Your form has been submitted successfully."}
           </p>
           {verifiedSuccess && (
             <div className="rounded-lg border bg-green-50 p-4 space-y-3">

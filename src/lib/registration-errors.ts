@@ -29,6 +29,8 @@ export function registrationErrorMessage(
       return "Your 5-minute payment window has expired. Please reserve a seat again.";
     case "hold_required":
       return "Your seat reservation was not found. Please reserve a seat before submitting.";
+    case "Registration not found":
+      return "We couldn't find your registration for this event. Please log in with the same account you used to register.";
     case "timeout":
       return "The request timed out. Please check your connection and try again.";
     case "missing_discourse_user":

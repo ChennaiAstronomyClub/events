@@ -773,11 +773,109 @@ export const formConfigs: FormConfig[] = [
         fullWidth: true,
       },
     ],
-  }
+  },
+  {
+    id: "visual-astronomy-june-2026-backfill",
+    title: "First Light Workshop — Complete Your Registration",
+    description:
+      "You are already registered for the June 13 workshop. Please fill in the missing details below so we can complete your registration record.",
+    sheetTab: "June 13 Entries",
+    hiddenFromListing: true,
+    updateExistingRegistration: true,
+    registrationClosesAt: "2026-06-14T07:00:00",
+    submitLabel: "Save Details",
+    fields: [
+      {
+        name: "location",
+        label: "Where will you be coming from?",
+        type: "text",
+        required: true,
+        placeholder: "Your locality in the city",
+        section: "Car Pooling",
+      },
+      {
+        name: "emergencyContact",
+        label: "Emergency Contact Person and Number",
+        type: "text",
+        required: true,
+        discourseField: `user_fields.${EMERGENCY_CONTACT_FIELD_ID}`,
+        saveToProfile: true,
+        placeholder: "Name & phone number",
+        section: "Emergency Information",
+      },
+      {
+        name: "bloodGroup",
+        label: "Blood Group",
+        type: "select",
+        required: true,
+        discourseField: `user_fields.${BLOOD_GROUP_FIELD_ID}`,
+        saveToProfile: true,
+        section: "Emergency Information",
+        options: [
+          { label: "A+", value: "A+" },
+          { label: "A-", value: "A-" },
+          { label: "B+", value: "B+" },
+          { label: "B-", value: "B-" },
+          { label: "AB+", value: "AB+" },
+          { label: "AB-", value: "AB-" },
+          { label: "O+", value: "O+" },
+          { label: "O-", value: "O-" },
+        ],
+      },
+      {
+        name: "observationalSkills",
+        label: "What is your experience with astronomy and stargazing?",
+        type: "textarea",
+        required: true,
+        fullWidth: true,
+        section: "Motivation & Interest",
+        placeholder: "Tell us about your experience with astronomy and stargazing...",
+      },
+      {
+        name: "eventReason",
+        label: "Why do you want to attend this event?",
+        type: "textarea",
+        required: true,
+        fullWidth: true,
+        section: "Motivation & Interest",
+        placeholder: "Share your motivation for attending...",
+      },
+      {
+        name: "additionalQuestions",
+        label: "Anything else that you would like to ask the CAC team?",
+        type: "textarea",
+        fullWidth: true,
+        section: "Additional Questions",
+        placeholder: "Any questions for us?",
+      },
+      {
+        name: "conductCode",
+        label:
+          "I acknowledge that smoking, consuming alcohol and other anti-social behavior are strictly prohibited",
+        type: "checkbox",
+        required: true,
+        fullWidth: true,
+        section: "Disclaimer",
+      },
+      {
+        name: "riskDisclaimer",
+        label:
+          "I understand and agree: Travelling by road involves inherent dangers including but not limited to accidents. CAC and its organizers are not responsible for any accidents or injuries during the event. CAC and organizers are not responsible for any loss or damage to personal property. I agree to take full responsibility.",
+        type: "checkbox",
+        required: true,
+        fullWidth: true,
+        section: "Disclaimer",
+      },
+    ],
+  },
 ];
 
 export function getFormConfig(formId: string): FormConfig | undefined {
   return formConfigs.find((f) => f.id === formId);
+}
+
+export function getListedFormConfigs(): FormConfig[] {
+  return formConfigs.filter((f) => !f.hiddenFromListing);
 }
 
 export type RegistrationStatus = "not-yet-open" | "open" | "closed";

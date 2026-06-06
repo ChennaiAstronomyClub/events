@@ -539,6 +539,14 @@ function writeKeyedRow(sheet, rowIndex, keys, values, colMap) {
   sheet.getRange(rowIndex, 1, 1, maxCol).setValues([rowData]);
 }
 
+/** Patch only the named cells in a row — leaves all other columns untouched. */
+function updateRowCells(sheet, rowIndex, colMap, fields) {
+  for (let i = 0; fields && i < fields.length; i++) {
+    const col = colMap[fields[i].key];
+    if (col) sheet.getRange(rowIndex, col).setValue(fields[i].value);
+  }
+}
+
 /** Write keys/values plus optional extra {key,value} fields in one setValues call. */
 function writeRowWithExtras(sheet, rowIndex, colMap, keys, values, extras) {
   const maxCol = Math.max.apply(null, Object.values(colMap));
@@ -1044,7 +1052,7 @@ function handleUpdate(data, sheet) {
     if (nextPaymentStatus) {
       extras.push({ key: "PaymentStatusUpdatedAt", value: now });
     }
-    writeRowWithExtras(sheet, rowIndex, colMap, [], [], extras);
+    updateRowCells(sheet, rowIndex, colMap, extras);
 
     if (nextPaymentStatus) {
       updateSeatStatusForPayment(

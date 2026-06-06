@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { formConfigs, getRegistrationStatus, isEventOver } from "@/config/forms";
+import { getListedFormConfigs, getRegistrationStatus, isEventOver } from "@/config/forms";
 import { useAuth } from "@/hooks/useAuth";
 import { storage } from "@/lib/storage";
 import { Card, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,7 +64,7 @@ export function HomePage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {formConfigs.map((form) => {
+        {getListedFormConfigs().map((form) => {
           const submission = user ? storage.getFormSubmission(form.id) : null;
           const isRegistered = submission !== null && submission?.email === user?.email;
           const regStatus = getRegistrationStatus(form);

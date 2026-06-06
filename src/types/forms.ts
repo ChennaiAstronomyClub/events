@@ -111,4 +111,8 @@ export interface FormConfig {
   submitLabel?: string;
   /** Shown to verified users on the success page after submission */
   verifiedSuccess?: VerifiedSuccessInfo;
+  /** If true, form is excluded from HomePage and AdminPage listings. Still reachable by direct URL. */
+  hiddenFromListing?: boolean;
+  /** If true, submit patches the user's existing sheet row instead of appending a new one. */
+  updateExistingRegistration?: boolean;
 }

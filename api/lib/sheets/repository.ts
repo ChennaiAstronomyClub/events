@@ -6,12 +6,16 @@ import {
   columnIndexToLetter,
   escapeSheetTab,
   findColumnIndex1,
+  findHeaderIndex0,
   formatSheetDateTime,
   sanitizeCell,
 } from "./utils.js";
 import { getSheetsClient, getSpreadsheetId } from "./client.js";
 
 export class SheetRepository {
+  private sheetIdCache: number | null = null;
+  private gridColumnCountCache: number | null = null;
+
   constructor(
     private readonly spreadsheetId: string,
     private readonly sheetTab: string,
@@ -20,6 +24,50 @@ export class SheetRepository {
 
   private tabRef(): string {
     return escapeSheetTab(this.sheetTab);
+  }
+
+  private async getSheetGridMeta(): Promise<{ sheetId: number; columnCount: number }> {
+    if (this.sheetIdCache !== null && this.gridColumnCountCache !== null) {
+      return { sheetId: this.sheetIdCache, columnCount: this.gridColumnCountCache };
+    }
+    const res = await this.sheets.spreadsheets.get({
+      spreadsheetId: this.spreadsheetId,
+      fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))",
+    });
+    const sheet = res.data.sheets?.find((s) => s.properties?.title === this.sheetTab);
+    const sheetId = sheet?.properties?.sheetId;
+    if (sheetId == null) {
+      throw new Error(`Sheet tab not found: ${this.sheetTab}`);
+    }
+    const columnCount = sheet.properties?.gridProperties?.columnCount ?? 26;
+    this.sheetIdCache = sheetId;
+    this.gridColumnCountCache = columnCount;
+    return { sheetId, columnCount };
+  }
+
+  /** Grow the tab grid when header/data writes need columns beyond the current limit. */
+  private async ensureGridColumns(minColumnCount: number): Promise<void> {
+    const { sheetId, columnCount } = await this.getSheetGridMeta();
+    if (columnCount >= minColumnCount) return;
+
+    const newCount = Math.max(minColumnCount, columnCount + 10);
+    await this.sheets.spreadsheets.batchUpdate({
+      spreadsheetId: this.spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            updateSheetProperties: {
+              properties: {
+                sheetId,
+                gridProperties: { columnCount: newCount },
+              },
+              fields: "gridProperties.columnCount",
+            },
+          },
+        ],
+      },
+    });
+    this.gridColumnCountCache = newCount;
   }
 
   async readSheetData(): Promise<SheetData> {
@@ -61,7 +109,7 @@ export class SheetRepository {
     const toAppend: string[] = [];
 
     for (const name of unique) {
-      let idx = headers.indexOf(name);
+      let idx = findHeaderIndex0(headers, name);
       if (idx === -1) {
         headers.push(name);
         toAppend.push(sanitizeCell(name) as string);
@@ -72,6 +120,8 @@ export class SheetRepository {
 
     if (toAppend.length > 0) {
       const startCol = data.headers.length + 1;
+      const endCol = startCol + toAppend.length - 1;
+      await this.ensureGridColumns(endCol);
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
         range: `${this.tabRef()}!${columnIndexToLetter(startCol)}1`,
@@ -97,6 +147,7 @@ export class SheetRepository {
     const cols = Object.values(colMap);
     if (cols.length === 0) throw new Error("appendRow: empty column map");
     const maxCol = Math.max(...cols);
+    await this.ensureGridColumns(maxCol);
     const rowData: unknown[] = new Array(maxCol).fill("");
     for (const { key, value } of fields) {
       const col = colMap[key];
@@ -131,6 +182,7 @@ export class SheetRepository {
     const cols = Object.values(colMap);
     if (cols.length === 0) return;
     const maxCol = Math.max(...cols);
+    await this.ensureGridColumns(maxCol);
     const rowData: unknown[] = new Array(maxCol).fill("");
 
     for (let i = 0; i < keys.length; i++) {

@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useFormSubmit } from "@/hooks/useFormSubmit";
 import { useHoldCountdown } from "@/hooks/useHoldCountdown";
 import { getFormConfig, getRegistrationStatus, isEventOver } from "@/config/forms";
-import { isVerifiedUser } from "@/config/discourse-fields";
+import { isVerifiedUser, VERIFIED_GROUP_NAME } from "@/config/discourse-fields";
 import { CAPACITY_CHECK_SAFETY_MS } from "@/lib/api-timeouts";
 import { updateUserFields } from "@/lib/discourse-api";
 import {
@@ -61,7 +61,10 @@ export function FormPage() {
   const navigate = useNavigate();
 
   const config = formId ? getFormConfig(formId) : undefined;
+  const isBackfillForm = Boolean(config?.updateExistingRegistration);
   const [submissionRev, setSubmissionRev] = useState(0);
+  const [backfillSubmitting, setBackfillSubmitting] = useState(false);
+  const [backfillError, setBackfillError] = useState<string | null>(null);
 
   // Check if this user already submitted this form (client-side quick check)
   const submission = useMemo(() => {
@@ -151,7 +154,9 @@ export function FormPage() {
   }
 
   const regStatus = config ? getRegistrationStatus(config) : "open";
-  const shouldCheckCapacity = Boolean(config && user && !alreadySubmitted && regStatus === "open");
+  const shouldCheckCapacity = Boolean(
+    config && user && !alreadySubmitted && regStatus === "open" && !isBackfillForm
+  );
   const isCheckingCapacity =
     shouldCheckCapacity && capacityCheck.status === "checking";
   const capacityCheckFailed =
@@ -371,11 +376,12 @@ export function FormPage() {
     };
   }, [apiKey, user?.email, config, shouldCheckCapacity, checkAttempt, triggerAutoRetry]);
 
-  const canShowRegistrationForm =
-    shouldCheckCapacity &&
-    capacityCheck.status === "ready" &&
-    !capacityCheck.isFull &&
-    (!requiresPayment || hasActiveHold);
+  const canShowRegistrationForm = isBackfillForm
+    ? regStatus === "open"
+    : shouldCheckCapacity &&
+      capacityCheck.status === "ready" &&
+      !capacityCheck.isFull &&
+      (!requiresPayment || hasActiveHold);
 
   // ---- Early returns ----
 
@@ -515,7 +521,7 @@ export function FormPage() {
   }
 
   // Show interactive "Already Registered" card if duplicate detected (client or server)
-  if (alreadySubmitted) {
+  if (alreadySubmitted && !isBackfillForm) {
     return (
       <div className="space-y-4">
         <NoticeAlert formId={config.id} />
@@ -690,11 +696,48 @@ export function FormPage() {
     );
   }
 
+  async function saveFieldsToProfile(fieldsToSave: SaveToProfileField[]) {
+    if (fieldsToSave.length === 0 || !apiKey || !user) return;
+    try {
+      const userFields: Record<string, string> = {};
+      for (const field of fieldsToSave) {
+        const fieldId = field.discourseField.replace("user_fields.", "");
+        userFields[fieldId] = field.value;
+      }
+      await updateUserFields(user.username, apiKey, userFields);
+      await refreshUser();
+    } catch {
+      console.warn("Failed to save fields to Discourse profile");
+    }
+  }
+
   async function handleSubmit(
     data: Record<string, unknown>,
     fieldsToSave: SaveToProfileField[]
   ) {
-    if (!apiKey) return;
+    if (!apiKey || !user) return;
+
+    if (config!.updateExistingRegistration) {
+      setBackfillSubmitting(true);
+      setBackfillError(null);
+      const memberType = isVerifiedUser(user.groups) ? VERIFIED_GROUP_NAME : "regular";
+      const updates = { ...data, username: user.username, memberType };
+      const result = await updateRegistration(config!.sheetTab, apiKey, updates, user);
+      setBackfillSubmitting(false);
+
+      if (result.success) {
+        await saveFieldsToProfile(fieldsToSave);
+        navigate("/success", {
+          state: {
+            formTitle: config!.title,
+            backfillComplete: true,
+          },
+        });
+      } else {
+        setBackfillError(registrationErrorMessage(result.error, result.message));
+      }
+      return;
+    }
 
     if (config!.requiresPayment && !hasActiveHold) {
       retryCapacityCheck();
@@ -713,30 +756,12 @@ export function FormPage() {
     }
 
     if (result.success) {
-      // Mark form as submitted in localStorage, storing the submitted data
-      storage.markFormSubmitted(config!.id, user!.email, data);
-
-      // Save fields to Discourse profile if requested
-      if (fieldsToSave.length > 0 && apiKey) {
-        try {
-          const userFields: Record<string, string> = {};
-          for (const field of fieldsToSave) {
-            // discourseField is like "user_fields.2" — extract the ID
-            const fieldId = field.discourseField.replace("user_fields.", "");
-            userFields[fieldId] = field.value;
-          }
-          await updateUserFields(user!.username, apiKey, userFields);
-          // Refresh user profile so next form load has the saved data
-          await refreshUser();
-        } catch {
-          // Profile save failed — not critical, form was still submitted
-          console.warn("Failed to save fields to Discourse profile");
-        }
-      }
+      storage.markFormSubmitted(config!.id, user.email, data);
+      await saveFieldsToProfile(fieldsToSave);
 
       const showVerifiedSuccess = Boolean(
         config!.verifiedSuccess &&
-          (config!.requiresPayment || isVerifiedUser(user!.groups))
+          (config!.requiresPayment || isVerifiedUser(user.groups))
       );
 
       navigate("/success", {
@@ -746,8 +771,7 @@ export function FormPage() {
         },
       });
     } else if (result.error === "duplicate") {
-      // Server detected duplicate — mark localStorage so future visits show the card
-      storage.markFormSubmitted(config!.id, user!.email);
+      storage.markFormSubmitted(config!.id, user.email);
     }
   }
 
@@ -775,17 +799,17 @@ export function FormPage() {
           </AlertDescription>
         </Alert>
       )}
-      {error && (
+      {(error || backfillError) && (
         <Alert variant="destructive">
           <AlertTitle>Submission Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{backfillError ?? error}</AlertDescription>
         </Alert>
       )}
       <DynamicForm
         config={config}
         user={user}
         onSubmit={handleSubmit}
-        isSubmitting={isSubmitting}
+        isSubmitting={isBackfillForm ? backfillSubmitting : isSubmitting}
         submitDisabled={config.requiresPayment && !hasActiveHold}
       />
     </div>

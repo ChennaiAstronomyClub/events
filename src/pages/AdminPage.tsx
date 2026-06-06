@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { storage } from "@/lib/storage";
-import { formConfigs } from "@/config/forms";
+import { getListedFormConfigs } from "@/config/forms";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -106,7 +106,7 @@ export function AdminPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {formConfigs.map((form) => {
+        {getListedFormConfigs().map((form) => {
           const result = results[form.id];
           return (
             <Card key={form.id}>

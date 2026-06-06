@@ -493,7 +493,7 @@ async function handleUpdate(
     if (nextPaymentStatus) {
       extras.push({ key: "PaymentStatusUpdatedAt", value: now });
     }
-    await repo.writeRowWithExtras(rowIndex, colMap, [], [], extras);
+    await repo.updateRowCells(rowIndex, colMap, extras);
 
     if (nextPaymentStatus) {
       const fresh = await repo.readSheetData();
