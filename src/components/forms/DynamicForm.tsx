@@ -55,9 +55,16 @@ export function getDiscourseValue(user: DiscourseUser, path: string): string {
 // ---- Schema builder ----
 
 /** Build a Zod object schema dynamically from an array of field configs. */
+function numFieldValue(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return 0;
+}
+
 function buildZodSchema(
   fields: FormFieldConfig[],
-  atLeastOneOf?: FormConfig["atLeastOneOf"]
+  atLeastOneOf?: FormConfig["atLeastOneOf"],
+  sumAtMost?: FormConfig["sumAtMost"],
+  additionalParticipants?: FormConfig["additionalParticipants"]
 ) {
   const shape: Record<string, z.ZodTypeAny> = {};
   const conditionalRequired = fields.filter((f) => f.required && f.showWhen);
@@ -83,16 +90,20 @@ function buildZodSchema(
       const minMessage = field.validation?.message || `${field.label} must be at least ${field.validation?.min}`;
       const maxMessage = field.validation?.message || `${field.label} must be at most ${field.validation?.max}`;
 
+      const emptyAsZero = field.validation?.min === 0;
       const parsedNumber = z.preprocess((value) => {
-        // Empty number inputs in react-hook-form can arrive as NaN; normalize to undefined
-        // so required validation shows a friendly message instead of a Zod type error.
-        if (value === "" || value === null || value === undefined) return undefined;
-        if (typeof value === "number") return Number.isNaN(value) ? undefined : value;
+        // Empty number inputs can arrive as NaN; when min is 0, treat cleared fields as 0.
+        if (value === "" || value === null || value === undefined) {
+          return emptyAsZero ? 0 : undefined;
+        }
+        if (typeof value === "number") {
+          return Number.isNaN(value) ? (emptyAsZero ? 0 : undefined) : value;
+        }
         if (typeof value === "string") {
           const parsed = Number(value);
-          return Number.isNaN(parsed) ? undefined : parsed;
+          return Number.isNaN(parsed) ? (emptyAsZero ? 0 : undefined) : parsed;
         }
-        return undefined;
+        return emptyAsZero ? 0 : undefined;
       }, z.number().optional());
 
       let schema = parsedNumber;
@@ -160,7 +171,11 @@ function buildZodSchema(
       } else if (field.type === "checkbox-group") {
         hasValue = Array.isArray(value) && value.length > 0;
       } else if (field.type === "number") {
-        hasValue = value !== undefined && value !== null && !Number.isNaN(value as number);
+        hasValue =
+          value !== undefined &&
+          value !== null &&
+          !Number.isNaN(value as number) &&
+          (field.validation?.min !== 0 || (value as number) >= 0);
       } else {
         hasValue = typeof value === "string" ? value.trim().length > 0 : !!value;
       }
@@ -191,6 +206,68 @@ function buildZodSchema(
             code: z.ZodIssueCode.custom,
             message: atLeastOneOf.message,
           });
+        }
+      }
+    }
+
+    if (sumAtMost && sumAtMost.fields.length > 0) {
+      const when = sumAtMost.when;
+      const shouldValidate = !when || data[when.field] === when.value;
+      if (shouldValidate) {
+        const total = sumAtMost.fields.reduce((sum, fieldName) => {
+          const value = data[fieldName];
+          return sum + (typeof value === "number" && Number.isFinite(value) ? value : 0);
+        }, 0);
+        if (total > sumAtMost.max) {
+          for (const fieldName of sumAtMost.fields) {
+            ctx.addIssue({
+              path: [fieldName],
+              code: z.ZodIssueCode.custom,
+              message: sumAtMost.message,
+            });
+          }
+        }
+      }
+    }
+
+    if (additionalParticipants) {
+      const { when, adultField, kidField, maxAdults, maxKids } = additionalParticipants;
+      if (data[when.field] === when.value) {
+        const adults = numFieldValue(data[adultField]);
+        const kids = numFieldValue(data[kidField]);
+
+        if (adults > maxAdults) {
+          ctx.addIssue({
+            path: [adultField],
+            code: z.ZodIssueCode.custom,
+            message: additionalParticipants.messageTooManyAdults,
+          });
+        }
+        if (kids > maxKids) {
+          ctx.addIssue({
+            path: [kidField],
+            code: z.ZodIssueCode.custom,
+            message: additionalParticipants.messageTooManyKids,
+          });
+        }
+
+        const isAllowed =
+          (adults === 1 && kids === 0) ||
+          (adults === 0 && kids === 1) ||
+          (adults === 0 && kids === 2);
+
+        if (!isAllowed) {
+          const message =
+            adults === 0 && kids === 0
+              ? additionalParticipants.messageNone
+              : additionalParticipants.messageBoth;
+          for (const fieldName of [adultField, kidField]) {
+            ctx.addIssue({
+              path: [fieldName],
+              code: z.ZodIssueCode.custom,
+              message,
+            });
+          }
         }
       }
     }
@@ -256,8 +333,14 @@ export function DynamicForm({
 
   // 4. Build Zod schema
   const schema = useMemo(
-    () => buildZodSchema(visibleFields, config.atLeastOneOf),
-    [visibleFields, config.atLeastOneOf]
+    () =>
+      buildZodSchema(
+        visibleFields,
+        config.atLeastOneOf,
+        config.sumAtMost,
+        config.additionalParticipants
+      ),
+    [visibleFields, config.atLeastOneOf, config.sumAtMost, config.additionalParticipants]
   );
 
   // 5. React Hook Form
@@ -341,6 +424,7 @@ export function DynamicForm({
     <FormWrapper
       title={config.title}
       description={config.description}
+      eventInfoLink={config.eventInfoLink}
       talkTitle={config.talkTitle}
       talkSpeaker={config.talkSpeaker}
       startTime={config.startTime}

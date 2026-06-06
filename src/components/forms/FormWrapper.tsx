@@ -7,6 +7,7 @@ import type { FormConfig } from "@/types/forms";
 interface FormWrapperProps {
   title: string;
   description?: FormConfig["description"];
+  eventInfoLink?: FormConfig["eventInfoLink"];
   talkTitle?: FormConfig["talkTitle"];
   talkSpeaker?: FormConfig["talkSpeaker"];
   startTime?: FormConfig["startTime"];
@@ -35,6 +36,7 @@ function formatDateTime(isoString?: string): string {
 export function FormWrapper({
   title,
   description,
+  eventInfoLink,
   talkTitle,
   talkSpeaker,
   startTime,
@@ -50,9 +52,10 @@ export function FormWrapper({
     <Card>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        {(description || talkTitle) && (
+        {(description || eventInfoLink || talkTitle) && (
           <EventDescription
             description={description}
+            eventInfoLink={eventInfoLink}
             talkTitle={talkTitle}
             talkSpeaker={talkSpeaker}
           />

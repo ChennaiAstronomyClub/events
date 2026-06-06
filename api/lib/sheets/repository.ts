@@ -80,7 +80,9 @@ export class SheetRepository {
       });
       data = await this.readSheetData();
       for (const name of unique) {
-        map[name] = findColumnIndex1(data.headers, name);
+        const found = findColumnIndex1(data.headers, name);
+        // Keep in-memory index when read range is narrower than written headers.
+        if (found > 0) map[name] = found;
       }
     }
 

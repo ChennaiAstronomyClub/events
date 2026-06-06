@@ -188,6 +188,40 @@ export function DynamicField({ field, readOnly }: DynamicFieldProps) {
             {readOnly && <Lock className="h-3 w-3 text-muted-foreground" />}
           </span>
         </label>
+      ) : field.type === "number" ? (
+        <Input
+          id={field.name}
+          type="number"
+          placeholder={field.placeholder}
+          readOnly={readOnly}
+          className={baseClass}
+          min={field.validation?.min}
+          max={field.validation?.max}
+          value={
+            typeof value === "number" && !Number.isNaN(value) && value !== 0
+              ? String(value)
+              : ""
+          }
+          onChange={(e) => {
+            const raw = e.target.value;
+            if (raw === "") {
+              setValue(field.name, field.validation?.min === 0 ? 0 : undefined, {
+                shouldValidate: true,
+              });
+              return;
+            }
+            const parsed = Number(raw);
+            setValue(
+              field.name,
+              Number.isNaN(parsed)
+                ? field.validation?.min === 0
+                  ? 0
+                  : undefined
+                : parsed,
+              { shouldValidate: true }
+            );
+          }}
+        />
       ) : (
         <Input
           id={field.name}
@@ -195,9 +229,7 @@ export function DynamicField({ field, readOnly }: DynamicFieldProps) {
           placeholder={field.placeholder}
           readOnly={readOnly}
           className={baseClass}
-          {...register(field.name, {
-            valueAsNumber: field.type === "number",
-          })}
+          {...register(field.name)}
         />
       )}
 

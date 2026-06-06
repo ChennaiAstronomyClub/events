@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useFormSubmit } from "@/hooks/useFormSubmit";
 import { useHoldCountdown } from "@/hooks/useHoldCountdown";
-import { getFormConfig, getRegistrationStatus } from "@/config/forms";
+import { getFormConfig, getRegistrationStatus, isEventOver } from "@/config/forms";
 import { isVerifiedUser } from "@/config/discourse-fields";
 import { CAPACITY_CHECK_SAFETY_MS } from "@/lib/api-timeouts";
 import { updateUserFields } from "@/lib/discourse-api";
@@ -391,6 +391,26 @@ export function FormPage() {
   }
 
   if (!user) return null;
+
+  if (isEventOver(config)) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Registration Closed</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              This event has ended.
+            </p>
+            <Button asChild variant="outline" className="w-full">
+              <Link to="/">Back to Home</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // Block new registrations when the window is closed/not-yet-open.
   // Already-registered users bypass this so they can still manage their registration.

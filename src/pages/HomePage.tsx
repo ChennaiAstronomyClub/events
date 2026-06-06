@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { formConfigs, getRegistrationStatus } from "@/config/forms";
+import { formConfigs, getRegistrationStatus, isEventOver } from "@/config/forms";
 import { useAuth } from "@/hooks/useAuth";
 import { storage } from "@/lib/storage";
 import { Card, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -69,13 +69,17 @@ export function HomePage() {
           const isRegistered = submission !== null && submission?.email === user?.email;
           const regStatus = getRegistrationStatus(form);
 
-          // Registered users always get "Manage Registration" regardless of status.
-          // Unregistered users see a status-appropriate button.
+          // After the event ends, everyone sees a disabled "Registrations Closed" button.
+          // Before then, registered users can manage their registration even if the window closed.
           let buttonLabel: string;
           let buttonVariant: "default" | "outline" | "secondary";
           let buttonDisabled = false;
 
-          if (isRegistered) {
+          if (isEventOver(form)) {
+            buttonLabel = "Registrations Closed";
+            buttonVariant = "secondary";
+            buttonDisabled = true;
+          } else if (isRegistered) {
             buttonLabel = "Manage Registration";
             buttonVariant = "outline";
           } else if (regStatus === "open") {
@@ -96,9 +100,10 @@ export function HomePage() {
             <Card key={form.id} className="h-full">
               <CardHeader className="flex flex-1 flex-col">
                 <CardTitle>{form.title}</CardTitle>
-                {(form.description || form.talkTitle) && (
+                {(form.description || form.eventInfoLink || form.talkTitle) && (
                   <EventDescription
                     description={form.description}
+                    eventInfoLink={form.eventInfoLink}
                     talkTitle={form.talkTitle}
                     talkSpeaker={form.talkSpeaker}
                   />

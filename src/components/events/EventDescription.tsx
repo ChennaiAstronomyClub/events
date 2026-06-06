@@ -1,7 +1,10 @@
 import { CardDescription } from "@/components/ui/card";
 import type { FormConfig } from "@/types/forms";
 
-type EventDescriptionProps = Pick<FormConfig, "description" | "talkTitle" | "talkSpeaker">;
+type EventDescriptionProps = Pick<
+  FormConfig,
+  "description" | "talkTitle" | "talkSpeaker" | "eventInfoLink"
+>;
 
 /**
  * Renders event subtitle / talk info on cards and form headers.
@@ -11,6 +14,7 @@ export function EventDescription({
   description,
   talkTitle,
   talkSpeaker,
+  eventInfoLink,
 }: EventDescriptionProps) {
   if (talkTitle) {
     return (
@@ -24,6 +28,22 @@ export function EventDescription({
         {talkSpeaker && (
           <p className="pl-3 text-sm font-normal text-muted-foreground">{talkSpeaker}</p>
         )}
+      </CardDescription>
+    );
+  }
+
+  if (eventInfoLink) {
+    return (
+      <CardDescription>
+        {eventInfoLink.message}{" "}
+        <a
+          href={eventInfoLink.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-primary underline underline-offset-2 hover:text-primary/80"
+        >
+          {eventInfoLink.linkLabel || "Read event details"}
+        </a>
       </CardDescription>
     );
   }

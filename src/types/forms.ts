@@ -47,6 +47,13 @@ export interface FormFieldConfig {
   section?: string;
 }
 
+export interface EventInfoLink {
+  /** Prompt shown above the link, e.g. "Please read the event details before registering." */
+  message: string;
+  url: string;
+  linkLabel?: string;
+}
+
 export interface VerifiedSuccessInfo {
   /** Message shown to verified users after submission */
   message: string;
@@ -60,6 +67,8 @@ export interface FormConfig {
   id: string;
   title: string;
   description?: string;
+  /** Replaces a long description with a short prompt and external details link */
+  eventInfoLink?: EventInfoLink;
   /** If true, seat is held as Pending and expires unless payment is confirmed. */
   requiresPayment?: boolean;
   /** Prominent talk/session title shown on event cards (e.g. lecture name) */
@@ -79,6 +88,25 @@ export interface FormConfig {
   atLeastOneOf?: {
     fields: string[];
     message: string;
+  };
+  /** When `when` matches, sum of numeric fields must not exceed `max` */
+  sumAtMost?: {
+    fields: string[];
+    max: number;
+    when?: { field: string; value: string };
+    message: string;
+  };
+  /** Either additional adults or children — not both; each type has its own cap */
+  additionalParticipants?: {
+    when: { field: string; value: string };
+    adultField: string;
+    kidField: string;
+    maxAdults: number;
+    maxKids: number;
+    messageBoth: string;
+    messageNone: string;
+    messageTooManyAdults: string;
+    messageTooManyKids: string;
   };
   submitLabel?: string;
   /** Shown to verified users on the success page after submission */

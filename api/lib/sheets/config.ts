@@ -1,10 +1,11 @@
 /** Per-sheet registration caps (must match apps-script/sheets-proxy.js). */
 export const REGISTRATION_LIMITS: Record<string, number> = {
+  "June 13 Entries": 20,
   "May 31 Entries": 15,
 };
 
-/** Last column for reads (form fields + payment columns). */
-export const SHEET_READ_LAST_COLUMN = "O";
+/** Last column for reads (form fields + payment columns). Must cover the widest event tab. */
+export const SHEET_READ_LAST_COLUMN = "AZ";
 
 /** Full column read — Google returns all populated rows (dedupe must see every row). */
 export function getSheetValuesRange(_sheetTab: string, tabRef: string): string {
