@@ -10,7 +10,7 @@ export const formConfigs: FormConfig[] = [
   {
     id: "visual-astronomy-june-2026",
     requiresPayment: false,
-    registrationClosesAt: "2026-06-07T12:00:00",
+    registrationClosesAt: "2026-06-07T23:00:00",
     title: "First Light: Beginners' Visual Astronomy Workshop",
     eventInfoLink: {
       message: "Please read the event details before registering.",
