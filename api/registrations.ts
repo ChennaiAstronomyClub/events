@@ -3,10 +3,10 @@ import {
   dispatchRegistration,
   isSheetsApiConfigured,
   type RegistrationAction,
-} from "./lib/sheets/index.js";
-import { mapSheetsError } from "./lib/sheets/errors.js";
-import "./lib/sheets/client.js";
-import { redisGet, redisSet } from "./lib/redis/client.js";
+} from "../server/lib/sheets/index.js";
+import { mapSheetsError } from "../server/lib/sheets/errors.js";
+import "../server/lib/sheets/client.js";
+import { redisGet, redisSet } from "../server/lib/redis/client.js";
 
 const DISCOURSE_CACHE_TTL_S = 60;
 
