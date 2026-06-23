@@ -6,6 +6,15 @@ import {
 } from "../server/lib/sheets/index.js";
 import { mapSheetsError } from "../server/lib/sheets/errors.js";
 import "../server/lib/sheets/client.js";
+import {
+  GUEST_REGISTRATION_FORM_IDS,
+  expectedSheetTabForForm,
+} from "../server/lib/sheets/config.js";
+import {
+  createHoldToken,
+  resolveHoldToken,
+  invalidateHoldToken,
+} from "../server/lib/sheets/hold-token.js";
 import { redisGet, redisSet } from "../server/lib/redis/client.js";
 
 const DISCOURSE_CACHE_TTL_S = 60;
@@ -23,6 +32,13 @@ const ACTIONS_NEEDING_USER: RegistrationAction[] = [
   "releaseHold",
   "update",
   "reserve",
+];
+
+const GUEST_ACTIONS: RegistrationAction[] = [
+  "submit",
+  "releaseHold",
+  "reserve",
+  "status",
 ];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -44,33 +60,58 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
-  const userApiKey = req.headers["user-api-key"] as string | undefined;
-  if (!userApiKey) return res.status(401).json({ success: false, error: "Unauthorized" });
-
-  const sheetTab = typeof req.body?.sheetTab === "string" ? req.body.sheetTab.trim() : "";
+  const body = req.body as Record<string, unknown> | undefined;
+  const sheetTab = typeof body?.sheetTab === "string" ? body.sheetTab.trim() : "";
   if (!sheetTab) return res.status(400).json({ success: false, error: "Missing sheetTab" });
 
-  const action = normalizeAction(req.body?.action);
+  const action = normalizeAction(body?.action);
   if (!action) return res.status(400).json({ success: false, error: "Invalid action" });
+
+  const formId = typeof body?.formId === "string" ? body.formId.trim() : "";
+  const tabMismatch = validateFormSheetBinding(formId, sheetTab);
+  if (tabMismatch) return res.status(400).json(tabMismatch);
+
+  const userApiKey = req.headers["user-api-key"] as string | undefined;
+  const isGuestForm = formId.length > 0 && GUEST_REGISTRATION_FORM_IDS.has(formId);
+  const isGuestRequest = !userApiKey && isGuestForm;
+
+  if (!userApiKey && !isGuestRequest) {
+    return res.status(401).json({ success: false, error: "Unauthorized" });
+  }
+
+  if (isGuestRequest && !GUEST_ACTIONS.includes(action)) {
+    return res.status(401).json({ success: false, error: "Unauthorized" });
+  }
+
+  if (isGuestRequest && (action === "cancel" || action === "update")) {
+    return res.status(401).json({ success: false, error: "Unauthorized" });
+  }
 
   let user: DiscourseUserSummary;
   let memberType: string;
+  let holdTokenForRelease: string | undefined;
 
-  if (action === "status") {
+  if (isGuestRequest) {
+    const guestResolved = await resolveGuestUser(body ?? {}, action, formId, sheetTab, res);
+    if (!guestResolved) return;
+    user = guestResolved.user;
+    memberType = "guest";
+    holdTokenForRelease = guestResolved.holdToken;
+  } else if (action === "status") {
     user = { username: "", email: "", groups: [] };
     memberType = "regular";
     if (shouldVerifyDiscourseOnRegistration()) {
       try {
-        await verifyDiscourseApiKeyCached(discourseUrl, userApiKey);
+        await verifyDiscourseApiKeyCached(discourseUrl, userApiKey!);
       } catch {
         return res.status(403).json({ success: false, error: "Failed to verify user" });
       }
     }
   } else {
     const resolved = await resolveRegistrationUser(
-      req.body,
+      body,
       discourseUrl,
-      userApiKey,
+      userApiKey!,
       action,
       res
     );
@@ -82,7 +123,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const submitBody = buildSubmitBody(req.body, user, memberType, action);
+    const submitBody = buildSubmitBody(body, user, memberType, action);
     const result = await dispatchRegistration({
       action,
       sheetTab,
@@ -91,12 +132,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         action === "submit"
           ? submitBody
           : action === "update"
-            ? { updates: req.body?.updates, sheetTab }
+            ? { updates: body?.updates, sheetTab, formId }
             : {
-                formId: req.body?.formId ?? "",
-                requiresPayment: req.body?.requiresPayment === true,
+                formId: formId || "",
+                requiresPayment: body?.requiresPayment === true,
               },
     });
+
+    if (isGuestRequest && action === "reserve" && result.success) {
+      const email = user.email;
+      const expiresAt =
+        typeof result.expiresAt === "string" ? result.expiresAt : "";
+      if (email && expiresAt) {
+        const holdToken = await createHoldToken(sheetTab, formId, email, expiresAt);
+        return res.status(200).json({ ...result, holdToken });
+      }
+    }
+
+    if (isGuestRequest && action === "releaseHold" && result.success && holdTokenForRelease) {
+      await invalidateHoldToken(holdTokenForRelease);
+    }
+
+    if (isGuestRequest && action === "submit" && result.success) {
+      const holdToken =
+        typeof body?.holdToken === "string" ? body.holdToken.trim() : "";
+      if (holdToken) await invalidateHoldToken(holdToken);
+    }
+
     return res.status(200).json(result);
   } catch (err: unknown) {
     const mapped = mapSheetsError(err);
@@ -106,6 +168,126 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     return res.status(mapped.status).json(mapped.body);
   }
+}
+
+function validateFormSheetBinding(
+  formId: string,
+  sheetTab: string
+): { success: false; error: string; message?: string } | null {
+  if (!formId) {
+    return {
+      success: false,
+      error: "missing_form_id",
+      message: "Missing formId.",
+    };
+  }
+  const expected = expectedSheetTabForForm(formId);
+  if (!expected) {
+    return {
+      success: false,
+      error: "unknown_form_id",
+      message: "Unknown form.",
+    };
+  }
+  if (expected !== sheetTab) {
+    return {
+      success: false,
+      error: "sheet_tab_mismatch",
+      message: "sheetTab does not match formId.",
+    };
+  }
+  return null;
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+async function resolveGuestUser(
+  body: Record<string, unknown>,
+  action: RegistrationAction,
+  formId: string,
+  sheetTab: string,
+  res: VercelResponse
+): Promise<{ user: DiscourseUserSummary; holdToken?: string } | null> {
+  if (!GUEST_REGISTRATION_FORM_IDS.has(formId)) {
+    res.status(403).json({ success: false, error: "Forbidden" });
+    return null;
+  }
+
+  if (action === "status") {
+    return { user: { username: "", email: "", groups: [] } };
+  }
+
+  if (action === "reserve") {
+    const guestUser = parseGuestUser(body);
+    if (!guestUser || !isValidEmail(guestUser.email)) {
+      res.status(400).json({
+        success: false,
+        error: "invalid_guest_email",
+        message: "A valid email is required to reserve a seat.",
+      });
+      return null;
+    }
+    return {
+      user: {
+        username: "",
+        email: guestUser.email,
+        groups: [],
+      },
+    };
+  }
+
+  const holdToken = typeof body.holdToken === "string" ? body.holdToken.trim() : "";
+  if (!holdToken) {
+    res.status(400).json({
+      success: false,
+      error: "missing_hold_token",
+      message: "Missing hold token. Please open the registration form again.",
+    });
+    return null;
+  }
+
+  const resolved = await resolveHoldToken(holdToken, sheetTab, formId);
+  if (!resolved) {
+    res.status(403).json({
+      success: false,
+      error: "invalid_hold_token",
+      message: "Your seat hold expired or is invalid. Please try again.",
+    });
+    return null;
+  }
+
+  if (action === "submit") {
+    const formData =
+      body.formData && typeof body.formData === "object"
+        ? (body.formData as Record<string, unknown>)
+        : {};
+    const formEmail =
+      typeof formData.email === "string" ? formData.email.trim().toLowerCase() : "";
+    if (!formEmail || formEmail !== resolved.email.toLowerCase()) {
+      res.status(400).json({
+        success: false,
+        error: "email_mismatch",
+        message: "Form email must match the email used to reserve your seat.",
+      });
+      return null;
+    }
+  }
+
+  return {
+    user: { username: "", email: resolved.email, groups: [] },
+    holdToken,
+  };
+}
+
+function parseGuestUser(body: Record<string, unknown>): { email: string } | null {
+  const raw = body.guestUser;
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.email !== "string") return null;
+  const email = o.email.trim();
+  return email ? { email } : null;
 }
 
 function shouldVerifyDiscourseOnRegistration(): boolean {

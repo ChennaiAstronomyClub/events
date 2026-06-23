@@ -24,7 +24,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface DynamicFormProps {
   config: FormConfig;
-  user: DiscourseUser;
+  user?: DiscourseUser | null;
+  /** Merged over Discourse defaults (e.g. guest email after seat reserve). */
+  prefillValues?: Record<string, unknown>;
+  /** Field names forced read-only regardless of verification status. */
+  readOnlyFields?: string[];
   onSubmit: (
     data: Record<string, unknown>,
     fieldsToSave: SaveToProfileField[]
@@ -276,8 +280,8 @@ function buildZodSchema(
 
 // ---- Default value factory ----
 
-function getDefaultValue(field: FormFieldConfig, user: DiscourseUser): unknown {
-  if (field.discourseField) {
+function getDefaultValue(field: FormFieldConfig, user?: DiscourseUser | null): unknown {
+  if (field.discourseField && user) {
     const val = getDiscourseValue(user, field.discourseField);
     return field.type === "number" ? (val ? Number(val) : undefined) : val;
   }
@@ -298,11 +302,13 @@ function getDefaultValue(field: FormFieldConfig, user: DiscourseUser): unknown {
 export function DynamicForm({
   config,
   user,
+  prefillValues,
+  readOnlyFields,
   onSubmit,
   isSubmitting,
   submitDisabled,
 }: DynamicFormProps) {
-  const isVerified = isVerifiedUser(user.groups);
+  const isVerified = isVerifiedUser(user?.groups ?? []);
   const [saveToProfile, setSaveToProfile] = useState(true);
 
   // 1. Remove fields that verified users don't need to see
@@ -314,6 +320,7 @@ export function DynamicForm({
   // 2. Snapshot of original Discourse values (for save-to-profile diffing)
   const originalValues = useMemo(() => {
     const map: Record<string, string> = {};
+    if (!user) return map;
     for (const field of visibleFields) {
       if (field.saveToProfile && field.discourseField) {
         map[field.name] = getDiscourseValue(user, field.discourseField);
@@ -328,8 +335,15 @@ export function DynamicForm({
     for (const field of visibleFields) {
       values[field.name] = getDefaultValue(field, user);
     }
+    if (prefillValues) {
+      for (const [key, val] of Object.entries(prefillValues)) {
+        if (val !== undefined && val !== null && val !== "") {
+          values[key] = val;
+        }
+      }
+    }
     return values;
-  }, [visibleFields, user]);
+  }, [visibleFields, user, prefillValues]);
 
   // 4. Build Zod schema
   const schema = useMemo(
@@ -377,7 +391,7 @@ export function DynamicForm({
   function handleFormSubmit(data: Record<string, unknown>) {
     // Collect fields the user wants saved back to Discourse
     const fieldsToSave: SaveToProfileField[] = [];
-    if (saveToProfile) {
+    if (user && saveToProfile) {
       for (const field of changedProfileFields) {
         const value = data[field.name];
         if (value !== undefined && value !== null && field.discourseField) {
@@ -405,6 +419,24 @@ export function DynamicForm({
     }
 
     return onSubmit(serialized, fieldsToSave);
+  }
+
+  const readOnlyFieldSet = useMemo(
+    () => new Set(readOnlyFields ?? []),
+    [readOnlyFields]
+  );
+
+  function isFieldReadOnly(field: FormFieldConfig): boolean {
+    if (readOnlyFieldSet.has(field.name)) return true;
+    if (
+      isVerified &&
+      field.verifiedReadOnly &&
+      user &&
+      field.discourseField
+    ) {
+      return Boolean(getDiscourseValue(user, field.discourseField));
+    }
+    return false;
   }
 
   // ---- Render ----
@@ -436,8 +468,8 @@ export function DynamicForm({
       onSubmit={methods.handleSubmit((data) => handleFormSubmit(data as Record<string, unknown>))}
     >
       <FormProvider {...methods}>
-        {/* "Save to profile" prompt when Discourse fields have been edited */}
-        {changedProfileFields.length > 0 && (
+        {/* "Save to profile" — logged-in users only (updates Discourse custom fields) */}
+        {user && changedProfileFields.length > 0 && (
           <Alert className="mb-4">
             <AlertDescription className="flex items-start gap-3">
               <label className="flex items-start gap-2 text-sm cursor-pointer">
@@ -462,7 +494,11 @@ export function DynamicForm({
             <h3 className="text-lg font-semibold text-gray-900 mb-4">{section}</h3>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {fieldsInSection.map((field) => (
-                <DynamicField key={field.name} field={field} readOnly={false} />
+                <DynamicField
+                  key={field.name}
+                  field={field}
+                  readOnly={isFieldReadOnly(field)}
+                />
               ))}
             </div>
           </div>

@@ -9,6 +9,7 @@ import {
 export const formConfigs: FormConfig[] = [
   {
     id: "city-meetup-july-4",
+    allowGuestRegistration: true,
     requiresPayment: true,
     registrationClosesAt: "2026-07-04T00:00:00",
     title: "City Meetup Series",
@@ -36,6 +37,15 @@ export const formConfigs: FormConfig[] = [
         type: "text",
         required: true,
         discourseField: "name",
+        verifiedReadOnly: true,
+        section: "Personal Information",
+      },
+      {
+        name: "email",
+        label: "Email ID",
+        type: "email",
+        required: true,
+        discourseField: "email",
         verifiedReadOnly: true,
         section: "Personal Information",
       },
@@ -968,6 +978,10 @@ export const formConfigs: FormConfig[] = [
 
 export function getFormConfig(formId: string): FormConfig | undefined {
   return formConfigs.find((f) => f.id === formId);
+}
+
+export function allowsGuestRegistration(formId: string): boolean {
+  return Boolean(getFormConfig(formId)?.allowGuestRegistration);
 }
 
 export function getListedFormConfigs(): FormConfig[] {

@@ -1,3 +1,29 @@
+/**
+ * Form IDs that allow registration without Discourse login.
+ * Keep in sync with FormConfig.allowGuestRegistration in src/config/forms.ts.
+ */
+export const GUEST_REGISTRATION_FORM_IDS = new Set(["city-meetup-july-4"]);
+
+/** formId → sheetTab for guest-allowed forms (server trust boundary). */
+export const GUEST_FORM_SHEET_TABS: Record<string, string> = {
+  "city-meetup-july-4": "July 4 Entries",
+};
+
+/** formId → sheetTab for all forms (keep in sync with src/config/forms.ts). */
+export const FORM_ID_SHEET_TABS: Record<string, string> = {
+  "city-meetup-july-4": "July 4 Entries",
+  "visual-astronomy-june-2026": "June 13 Entries",
+  "city-meetup-may-31": "May 31 Entries",
+  "star-party-march-2026": "Entries",
+  "star-party-april-2026": "April Entries",
+  "night-sky-passport-presale": "Night Sky Passport Presale Entries",
+  "visual-astronomy-june-2026-backfill": "June 13 Entries",
+};
+
+export function expectedSheetTabForForm(formId: string): string | undefined {
+  return FORM_ID_SHEET_TABS[formId.trim()];
+}
+
 /** Per-sheet registration caps (must match apps-script/sheets-proxy.js). */
 export const REGISTRATION_LIMITS: Record<string, number> = {
   "July 4 Entries": 17,

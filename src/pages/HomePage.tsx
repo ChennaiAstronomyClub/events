@@ -65,8 +65,10 @@ export function HomePage() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         {getListedFormConfigs().map((form) => {
-          const submission = user ? storage.getFormSubmission(form.id) : null;
-          const isRegistered = submission !== null && submission?.email === user?.email;
+          const storedSubmission = storage.getFormSubmission(form.id);
+          const isRegistered = form.allowGuestRegistration
+            ? storedSubmission !== null
+            : storedSubmission !== null && storedSubmission.email === user?.email;
           const regStatus = getRegistrationStatus(form);
 
           // After the event ends, everyone sees a disabled "Registrations Closed" button.

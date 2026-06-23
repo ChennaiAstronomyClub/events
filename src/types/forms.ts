@@ -115,4 +115,6 @@ export interface FormConfig {
   hiddenFromListing?: boolean;
   /** If true, submit patches the user's existing sheet row instead of appending a new one. */
   updateExistingRegistration?: boolean;
+  /** If true, users may register without Discourse login; email must be collected in the form. */
+  allowGuestRegistration?: boolean;
 }

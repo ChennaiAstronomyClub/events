@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useFormSubmit } from "@/hooks/useFormSubmit";
 import { useHoldCountdown } from "@/hooks/useHoldCountdown";
@@ -13,6 +13,7 @@ import {
   registrationErrorMessage,
 } from "@/lib/registration-errors";
 import { storage } from "@/lib/storage";
+import { clearHoldToken, getHoldToken, setHoldToken } from "@/lib/guest-hold-token";
 import {
   cancelRegistration,
   getRegistrationStatusForSheet,
@@ -22,6 +23,8 @@ import {
 } from "@/lib/google-sheets";
 import { DynamicForm, type SaveToProfileField } from "@/components/forms/DynamicForm";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { NoticeAlert } from "@/components/notices/NoticeAlert";
 import {
@@ -56,21 +59,30 @@ const EMPTY_CAPACITY_CHECK: CapacityCheckState = {
 
 export function FormPage() {
   const { formId } = useParams<{ formId: string }>();
-  const { user, apiKey, refreshUser } = useAuth();
+  const location = useLocation();
+  const { user, apiKey, refreshUser, login, isLoading: authLoading } = useAuth();
   const { isSubmitting, isDuplicate, error, submit } = useFormSubmit();
   const navigate = useNavigate();
 
   const config = formId ? getFormConfig(formId) : undefined;
+  const isGuestMode = Boolean(config?.allowGuestRegistration && !user);
   const isBackfillForm = Boolean(config?.updateExistingRegistration);
   const [submissionRev, setSubmissionRev] = useState(0);
   const [backfillSubmitting, setBackfillSubmitting] = useState(false);
   const [backfillError, setBackfillError] = useState<string | null>(null);
+  const [guestEmail, setGuestEmail] = useState<string | null>(null);
+  const [continuingAsGuest, setContinuingAsGuest] = useState(false);
+  const [emailGateDraft, setEmailGateDraft] = useState("");
+  const [emailGateError, setEmailGateError] = useState<string | null>(null);
 
   // Check if this user already submitted this form (client-side quick check)
   const submission = useMemo(() => {
-    if (!config || !user) return null;
+    if (!config) return null;
     const s = storage.getFormSubmission(config.id);
-    return s !== null && s.email === user.email ? s : null;
+    if (!s) return null;
+    if (user) return s.email === user.email ? s : null;
+    if (config.allowGuestRegistration) return s;
+    return null;
   }, [config, user, submissionRev]);
 
   const alreadySubmitted = submission !== null || isDuplicate;
@@ -116,7 +128,11 @@ export function FormPage() {
     }
     setCardLoading(true);
     setCardError(null);
-    const result = await cancelRegistration(config!.sheetTab, apiKey, user);
+    const result = await cancelRegistration(config!.sheetTab, {
+      formId: config!.id,
+      apiKey: apiKey!,
+      user,
+    });
     if (result.success) {
       storage.clearFormSubmission(config!.id);
       navigate("/", { state: { cancelled: config!.title } });
@@ -140,9 +156,8 @@ export function FormPage() {
     const nightsValue = selectedNights.join(", ");
     const result = await updateRegistration(
       config!.sheetTab,
-      apiKey,
       { nights: nightsValue },
-      user
+      { formId: config!.id, apiKey: apiKey!, user }
     );
     if (result.success) {
       storage.updateFormSubmissionData(config!.id, { nights: nightsValue });
@@ -154,8 +169,13 @@ export function FormPage() {
   }
 
   const regStatus = config ? getRegistrationStatus(config) : "open";
+  const hasRegistrationIdentity = Boolean(user || (isGuestMode && guestEmail));
   const shouldCheckCapacity = Boolean(
-    config && user && !alreadySubmitted && regStatus === "open" && !isBackfillForm
+    config &&
+      hasRegistrationIdentity &&
+      !alreadySubmitted &&
+      regStatus === "open" &&
+      !isBackfillForm
   );
   const isCheckingCapacity =
     shouldCheckCapacity && capacityCheck.status === "checking";
@@ -168,7 +188,7 @@ export function FormPage() {
   //  - free events → only verified users (same logic as the /success page)
   const showVerifiedSuccess = Boolean(
     config?.verifiedSuccess &&
-      (requiresPayment || isVerifiedUser(user?.groups ?? []))
+      (requiresPayment || isVerifiedUser(user?.groups ?? []) || isGuestMode)
   );
 
   const { expired: holdExpired, formatted: holdCountdown } = useHoldCountdown(
@@ -217,13 +237,29 @@ export function FormPage() {
   }, [holdExpired, capacityCheck.hasValidHold]);
 
   useEffect(() => {
-    if (!holdExpired || !requiresPayment || !config || !apiKey) return;
+    if (!holdExpired || !requiresPayment || !config) return;
     if (!hadActiveHoldRef.current || holdReleaseStartedRef.current) return;
 
     holdReleaseStartedRef.current = true;
-    releaseExpiredHold(config.sheetTab, apiKey, user);
+    if (isGuestMode) {
+      const holdToken = getHoldToken(config.id);
+      if (holdToken) {
+        releaseExpiredHold(config.sheetTab, {
+          formId: config.id,
+          holdToken,
+        });
+        clearHoldToken(config.id);
+      }
+    } else {
+      if (!apiKey) return;
+      releaseExpiredHold(config.sheetTab, {
+        formId: config.id,
+        apiKey,
+        user,
+      });
+    }
     navigate("/", { state: { holdExpired: config.title }, replace: true });
-  }, [holdExpired, requiresPayment, config, apiKey, navigate]);
+  }, [holdExpired, requiresPayment, config, apiKey, user, isGuestMode, navigate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -263,9 +299,11 @@ export function FormPage() {
       error?: string;
       message?: string;
       expiresAt?: string;
+      holdToken?: string;
     }) {
       if (result.error === "duplicate") {
-        storage.markFormSubmitted(config!.id, user!.email);
+        const markEmail = user?.email ?? guestEmail ?? "";
+        if (markEmail) storage.markFormSubmitted(config!.id, markEmail);
         setSubmissionRev((n) => n + 1);
         return;
       }
@@ -300,6 +338,9 @@ export function FormPage() {
           }
           finishError(registrationErrorMessage(result.error, result.message));
           return;
+        }
+        if (result.holdToken) {
+          setHoldToken(config!.id, result.holdToken);
         }
         setCapacityCheck({
           sheetTab,
@@ -338,7 +379,7 @@ export function FormPage() {
       );
     }, CAPACITY_CHECK_SAFETY_MS);
 
-    if (!apiKey) {
+    if (!isGuestMode && !apiKey) {
       finishError("Your session expired. Please log in again.");
       return () => {
         cancelled = true;
@@ -346,13 +387,20 @@ export function FormPage() {
       };
     }
 
+    const callOptions = {
+      formId: config.id,
+      apiKey: apiKey ?? undefined,
+      user: user ?? undefined,
+      guestUser:
+        isGuestMode && guestEmail ? { email: guestEmail } : undefined,
+    };
+
     const checkPromise = needsPayment
-      ? reserveRegistrationSlot(sheetTab, apiKey, {
-          formId: config.id,
+      ? reserveRegistrationSlot(sheetTab, {
+          ...callOptions,
           requiresPayment: true,
-          user,
         })
-      : getRegistrationStatusForSheet(sheetTab, apiKey);
+      : getRegistrationStatusForSheet(sheetTab, callOptions);
 
     checkPromise
       .then((result) => {
@@ -374,7 +422,16 @@ export function FormPage() {
       cancelled = true;
       window.clearTimeout(safetyTimeoutId);
     };
-  }, [apiKey, user?.email, config, shouldCheckCapacity, checkAttempt, triggerAutoRetry]);
+  }, [
+    apiKey,
+    user?.email,
+    guestEmail,
+    isGuestMode,
+    config,
+    shouldCheckCapacity,
+    checkAttempt,
+    triggerAutoRetry,
+  ]);
 
   const canShowRegistrationForm = isBackfillForm
     ? regStatus === "open"
@@ -396,7 +453,134 @@ export function FormPage() {
     );
   }
 
-  if (!user) return null;
+  if (!user && !config.allowGuestRegistration) return null;
+
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
+
+  function handleSignInWithForum() {
+    storage.setReturnTo(location.pathname);
+    login();
+  }
+
+  function handleContinueAsGuest() {
+    setContinuingAsGuest(true);
+  }
+
+  function handleEmailGateContinue() {
+    const email = emailGateDraft.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setEmailGateError("Please enter a valid email address.");
+      return;
+    }
+    setEmailGateError(null);
+    setGuestEmail(email);
+    autoRetryCountRef.current = 0;
+    hadActiveHoldRef.current = false;
+    holdReleaseStartedRef.current = false;
+    setCapacityCheck({ ...EMPTY_CAPACITY_CHECK, status: "checking" });
+    setCheckAttempt((n) => n + 1);
+  }
+
+  const showAuthChoice =
+    isGuestMode &&
+    !continuingAsGuest &&
+    !alreadySubmitted &&
+    regStatus === "open" &&
+    !isBackfillForm &&
+    !isEventOver(config);
+
+  const showEmailGate =
+    isGuestMode &&
+    continuingAsGuest &&
+    !guestEmail &&
+    !alreadySubmitted &&
+    regStatus === "open" &&
+    !isBackfillForm;
+
+  if (showAuthChoice) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Register for {config.title}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Sign in with your CAC Forum account to pre-fill your details and manage
+              your registration later, or continue as a guest with your email.
+            </p>
+            <Button className="w-full" onClick={handleSignInWithForum}>
+              Sign in with CAC Forum
+            </Button>
+            <Button className="w-full" variant="outline" onClick={handleContinueAsGuest}>
+              Continue as guest
+            </Button>
+            <Button asChild variant="ghost" className="w-full">
+              <Link to="/">Back to Home</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (showEmailGate) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Enter your email</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              We&apos;ll reserve a seat for 5 minutes while you complete registration
+              for {config.title}.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="guest-email">Email ID</Label>
+              <Input
+                id="guest-email"
+                type="email"
+                autoComplete="email"
+                value={emailGateDraft}
+                onChange={(e) => setEmailGateDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleEmailGateContinue();
+                }}
+                placeholder="you@example.com"
+              />
+              {emailGateError && (
+                <p className="text-sm text-destructive">{emailGateError}</p>
+              )}
+            </div>
+            <Button className="w-full" onClick={handleEmailGateContinue}>
+              Continue
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                setContinuingAsGuest(false);
+                setEmailGateDraft("");
+                setEmailGateError(null);
+              }}
+            >
+              Sign in with forum instead
+            </Button>
+            <Button asChild variant="ghost" className="w-full">
+              <Link to="/">Back to Home</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (isEventOver(config)) {
     return (
@@ -567,7 +751,7 @@ export function FormPage() {
                   </Alert>
                 )}
                 <div className="flex gap-2">
-                  {nightsField && (
+                  {!isGuestMode && nightsField && (
                     <Button
                       variant="outline"
                       className="flex-1"
@@ -576,17 +760,24 @@ export function FormPage() {
                       Change Dates
                     </Button>
                   )}
-                  <Button
-                    variant="destructive"
-                    className="flex-1"
-                    onClick={() => {
-                      setCardError(null);
-                      setCardMode("confirm-cancel");
-                    }}
-                  >
-                    Cancel Registration
-                  </Button>
+                  {!isGuestMode && (
+                    <Button
+                      variant="destructive"
+                      className="flex-1"
+                      onClick={() => {
+                        setCardError(null);
+                        setCardMode("confirm-cancel");
+                      }}
+                    >
+                      Cancel Registration
+                    </Button>
+                  )}
                 </div>
+                {isGuestMode && (
+                  <p className="text-xs text-muted-foreground">
+                    To cancel your registration, please contact the organisers.
+                  </p>
+                )}
                 <Button asChild variant="ghost" className="w-full">
                   <Link to="/">Back to Home</Link>
                 </Button>
@@ -715,6 +906,47 @@ export function FormPage() {
     data: Record<string, unknown>,
     fieldsToSave: SaveToProfileField[]
   ) {
+    if (isGuestMode) {
+      if (!guestEmail) return;
+
+      if (config!.requiresPayment && !hasActiveHold) {
+        retryCapacityCheck();
+        return;
+      }
+
+      const holdToken = getHoldToken(config!.id) ?? undefined;
+      const result = await submit(config!.sheetTab, data, {
+        formId: config!.id,
+        requiresPayment: Boolean(config!.requiresPayment),
+        guestUser: { email: guestEmail },
+        holdToken,
+      });
+
+      if (isHoldExpiredError(result.error)) {
+        retryCapacityCheck();
+        return;
+      }
+
+      const submitEmail =
+        typeof data.email === "string" && data.email.trim()
+          ? data.email.trim()
+          : guestEmail;
+
+      if (result.success) {
+        clearHoldToken(config!.id);
+        storage.markFormSubmitted(config!.id, submitEmail, data);
+        navigate("/success", {
+          state: {
+            formTitle: config!.title,
+            verifiedSuccess: config!.verifiedSuccess,
+          },
+        });
+      } else if (result.error === "duplicate") {
+        storage.markFormSubmitted(config!.id, submitEmail);
+      }
+      return;
+    }
+
     if (!apiKey || !user) return;
 
     if (config!.updateExistingRegistration) {
@@ -722,7 +954,11 @@ export function FormPage() {
       setBackfillError(null);
       const memberType = isVerifiedUser(user.groups) ? VERIFIED_GROUP_NAME : "regular";
       const updates = { ...data, username: user.username, memberType };
-      const result = await updateRegistration(config!.sheetTab, apiKey, updates, user);
+      const result = await updateRegistration(config!.sheetTab, updates, {
+        formId: config!.id,
+        apiKey,
+        user,
+      });
       setBackfillSubmitting(false);
 
       if (result.success) {
@@ -744,9 +980,10 @@ export function FormPage() {
       return;
     }
 
-    const result = await submit(config!.sheetTab, data, apiKey, {
+    const result = await submit(config!.sheetTab, data, {
       formId: config!.id,
       requiresPayment: Boolean(config!.requiresPayment),
+      apiKey,
       user,
     });
 
@@ -807,7 +1044,9 @@ export function FormPage() {
       )}
       <DynamicForm
         config={config}
-        user={user}
+        user={user ?? null}
+        prefillValues={isGuestMode && guestEmail ? { email: guestEmail } : undefined}
+        readOnlyFields={isGuestMode && guestEmail ? ["email"] : undefined}
         onSubmit={handleSubmit}
         isSubmitting={isBackfillForm ? backfillSubmitting : isSubmitting}
         submitDisabled={config.requiresPayment && !hasActiveHold}

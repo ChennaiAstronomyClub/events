@@ -2,7 +2,6 @@ import { REGISTRATION_API_TIMEOUT_MS } from "@/lib/api-timeouts";
 import { isRetriableError } from "@/lib/registration-errors";
 import {
   getRegistrationDiscourseUser,
-  type RegistrationDiscourseUser,
 } from "@/lib/registration-discourse";
 import { withReserveDedupe } from "@/lib/reserve-dedupe";
 import type { DiscourseUser } from "@/types/discourse";
@@ -34,9 +33,22 @@ export interface RegistrationReserveResult {
   activeRegistrations?: number;
   isFull?: boolean;
   expiresAt?: string;
+  holdToken?: string;
   row?: number;
   error?: string;
   message?: string;
+}
+
+export interface GuestUser {
+  email: string;
+}
+
+export interface RegistrationCallOptions {
+  formId: string;
+  apiKey?: string;
+  user?: DiscourseUser | null;
+  guestUser?: GuestUser;
+  holdToken?: string;
 }
 
 function delay(ms: number): Promise<void> {
@@ -52,12 +64,25 @@ function withDiscourseUser(
   return { ...payload, discourseUser };
 }
 
+function enrichGuestPayload(
+  payload: Record<string, unknown>,
+  options?: Pick<RegistrationCallOptions, "guestUser" | "holdToken">
+): Record<string, unknown> {
+  let body = { ...payload };
+  if (options?.guestUser) {
+    body = { ...body, guestUser: options.guestUser };
+  }
+  if (options?.holdToken) {
+    body = { ...body, holdToken: options.holdToken };
+  }
+  return body;
+}
+
 /** Shared fetch helper for server-side registration API. */
 async function callRegistrationsApiOnce<T>(
-  apiKey: string,
   payload: Record<string, unknown>,
-  externalSignal?: AbortSignal,
-  discourseUser?: RegistrationDiscourseUser
+  options?: RegistrationCallOptions,
+  externalSignal?: AbortSignal
 ): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REGISTRATION_API_TIMEOUT_MS);
@@ -75,15 +100,20 @@ async function callRegistrationsApiOnce<T>(
     externalSignal.addEventListener("abort", onExternalAbort);
   }
 
-  const body = discourseUser ? { ...payload, discourseUser } : payload;
+  let body = withDiscourseUser(payload, options?.user);
+  body = enrichGuestPayload(body, options);
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (options?.apiKey) {
+    headers["User-Api-Key"] = options.apiKey;
+  }
 
   try {
     const response = await fetch("/api/registrations", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Api-Key": apiKey,
-      },
+      headers,
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -119,20 +149,13 @@ async function callRegistrationsApiOnce<T>(
   }
 }
 
-/**
- * Retries on lock contention or timeout. Reserve is idempotent — a retry after a
- * slow first request usually finds the existing Pending row and returns quickly.
- */
 async function callRegistrationsApi<T>(
-  apiKey: string,
   payload: Record<string, unknown>,
-  user?: DiscourseUser | null
+  options: RegistrationCallOptions
 ): Promise<T> {
-  const enriched = withDiscourseUser(payload, user);
-  const discourseUser = getRegistrationDiscourseUser(user);
   let last: T | undefined;
   for (let attempt = 0; attempt <= RETRY_ATTEMPTS; attempt++) {
-    last = await callRegistrationsApiOnce<T>(apiKey, enriched, undefined, discourseUser);
+    last = await callRegistrationsApiOnce<T>(payload, options);
     const error = (last as { error?: string }).error;
     if (!isRetriableError(error) || attempt === RETRY_ATTEMPTS) {
       return last;
@@ -145,49 +168,52 @@ async function callRegistrationsApi<T>(
 export async function submitToSheets(
   sheetTab: string,
   formData: Record<string, unknown>,
-  apiKey: string,
-  options?: { formId?: string; requiresPayment?: boolean; user?: DiscourseUser | null }
+  options: RegistrationCallOptions & {
+    requiresPayment?: boolean;
+  }
 ): Promise<SubmitResult> {
   return callRegistrationsApi<SubmitResult>(
-    apiKey,
     {
       action: "submit",
       sheetTab,
       formData,
-      formId: options?.formId ?? "",
-      requiresPayment: Boolean(options?.requiresPayment),
+      formId: options.formId,
+      requiresPayment: Boolean(options.requiresPayment),
     },
-    options?.user
+    options
   );
 }
 
 export async function cancelRegistration(
   sheetTab: string,
-  apiKey: string,
-  user?: DiscourseUser | null
+  options: RegistrationCallOptions
 ): Promise<SubmitResult> {
   return callRegistrationsApi<SubmitResult>(
-    apiKey,
-    { action: "cancel", sheetTab },
-    user
+    { action: "cancel", sheetTab, formId: options.formId },
+    options
   );
 }
 
 /** Fire-and-forget: delete expired Pending hold row (no retries, survives navigation). */
 export function releaseExpiredHold(
   sheetTab: string,
-  apiKey: string,
-  user?: DiscourseUser | null
+  options: RegistrationCallOptions
 ): void {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12_000);
-  const body = withDiscourseUser({ action: "releaseHold", sheetTab }, user);
+  const body = enrichGuestPayload(
+    withDiscourseUser({ action: "releaseHold", sheetTab, formId: options.formId }, options.user),
+    options
+  );
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (options.apiKey) {
+    headers["User-Api-Key"] = options.apiKey;
+  }
   void fetch("/api/registrations", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "User-Api-Key": apiKey,
-    },
+    headers,
     body: JSON.stringify(body),
     signal: controller.signal,
     keepalive: true,
@@ -196,25 +222,23 @@ export function releaseExpiredHold(
 
 export async function updateRegistration(
   sheetTab: string,
-  apiKey: string,
   updates: Record<string, unknown>,
-  user?: DiscourseUser | null
+  options: RegistrationCallOptions
 ): Promise<SubmitResult> {
   return callRegistrationsApi<SubmitResult>(
-    apiKey,
-    { action: "update", sheetTab, updates },
-    user
+    { action: "update", sheetTab, updates, formId: options.formId },
+    options
   );
 }
 
 export async function getRegistrationStatusForSheet(
   sheetTab: string,
-  apiKey: string
+  options: RegistrationCallOptions
 ): Promise<RegistrationStatusResult> {
-  return callRegistrationsApi<RegistrationStatusResult>(apiKey, {
-    action: "status",
-    sheetTab,
-  });
+  return callRegistrationsApi<RegistrationStatusResult>(
+    { action: "status", sheetTab, formId: options.formId },
+    options
+  );
 }
 
 /**
@@ -223,34 +247,25 @@ export async function getRegistrationStatusForSheet(
  */
 export async function reserveRegistrationSlot(
   sheetTab: string,
-  apiKey: string,
-  options?: {
-    formId?: string;
+  options: RegistrationCallOptions & {
     requiresPayment?: boolean;
     signal?: AbortSignal;
-    user?: DiscourseUser | null;
   }
 ): Promise<RegistrationReserveResult> {
-  const formId = options?.formId ?? "";
-  const email = options?.user?.email?.trim() ?? "";
+  const formId = options.formId;
+  const email =
+    options.user?.email?.trim() ?? options.guestUser?.email?.trim() ?? "";
   const run = async (): Promise<RegistrationReserveResult> => {
-    const payload = withDiscourseUser(
+    return callRegistrationsApiOnce<RegistrationReserveResult>(
       {
         action: "reserve",
         sheetTab,
         formId,
-        requiresPayment: Boolean(options?.requiresPayment),
+        requiresPayment: Boolean(options.requiresPayment),
         reserveFields: [],
       },
-      options?.user
-    );
-    const discourseUser = getRegistrationDiscourseUser(options?.user);
-    const signal = options?.signal;
-    return callRegistrationsApiOnce<RegistrationReserveResult>(
-      apiKey,
-      payload,
-      signal,
-      discourseUser
+      options,
+      options.signal
     );
   };
 

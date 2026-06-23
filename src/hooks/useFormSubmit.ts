@@ -3,7 +3,11 @@
  * Also exposes `isDuplicate` so FormPage can show the "already registered" card.
  */
 import { useState } from "react";
-import { submitToSheets } from "@/lib/google-sheets";
+import {
+  submitToSheets,
+  type GuestUser,
+  type RegistrationCallOptions,
+} from "@/lib/google-sheets";
 import { registrationErrorMessage } from "@/lib/registration-errors";
 import type { DiscourseUser } from "@/types/discourse";
 
@@ -25,13 +29,17 @@ export function useFormSubmit() {
   async function submit(
     sheetTab: string,
     formData: Record<string, unknown>,
-    apiKey: string,
-    options?: { formId?: string; requiresPayment?: boolean; user?: DiscourseUser | null }
+    options: RegistrationCallOptions & {
+      requiresPayment?: boolean;
+      user?: DiscourseUser | null;
+      guestUser?: GuestUser;
+      holdToken?: string;
+    }
   ) {
     setState({ isSubmitting: true, isSuccess: false, isDuplicate: false, error: null });
 
     try {
-      const result = await submitToSheets(sheetTab, formData, apiKey, options);
+      const result = await submitToSheets(sheetTab, formData, options);
       if (result.success) {
         setState({ isSubmitting: false, isSuccess: true, isDuplicate: false, error: null });
       } else {
