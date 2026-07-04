@@ -11,7 +11,7 @@ export const formConfigs: FormConfig[] = [
     id: "city-meetup-july-4",
     allowGuestRegistration: true,
     requiresPayment: true,
-    registrationClosesAt: "2026-07-04T00:00:00",
+    registrationClosesAt: "2026-07-04T18:00:00",
     title: "City Meetup Series",
     talkTitle: "The Multilingual Universe",
     talkSpeaker: "Dr Sushant Raut, KREA University",
