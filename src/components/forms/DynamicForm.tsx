@@ -235,10 +235,12 @@ function buildZodSchema(
     }
 
     if (additionalParticipants) {
-      const { when, adultField, kidField, maxAdults, maxKids } = additionalParticipants;
+      const { when, adultField, kidField, maxAdults, maxKids, maxTotal } =
+        additionalParticipants;
       if (data[when.field] === when.value) {
         const adults = numFieldValue(data[adultField]);
         const kids = numFieldValue(data[kidField]);
+        const total = adults + kids;
 
         if (adults > maxAdults) {
           ctx.addIssue({
@@ -256,9 +258,14 @@ function buildZodSchema(
         }
 
         const isAllowed =
-          (adults === 1 && kids === 0) ||
-          (adults === 0 && kids === 1) ||
-          (adults === 0 && kids === 2);
+          maxTotal != null
+            ? total >= 1 &&
+              adults <= maxAdults &&
+              kids <= maxKids &&
+              total <= maxTotal
+            : (adults === 1 && kids === 0) ||
+              (adults === 0 && kids === 1) ||
+              (adults === 0 && kids === 2);
 
         if (!isAllowed) {
           const message =

@@ -125,10 +125,12 @@ export function HomePage() {
                       </p>
                     )}
                     {form.feeInfo && (
-                      <p>
-                        <span className="font-semibold">Fee:</span>{" "}
-                        {form.feeInfo}
-                      </p>
+                      <div>
+                        <p>
+                          <span className="font-semibold">Fee:</span>
+                        </p>
+                        <div className="whitespace-pre-line">{form.feeInfo}</div>
+                      </div>
                     )}
                   </div>
                 ) : null}

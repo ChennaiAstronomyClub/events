@@ -73,9 +73,12 @@ export function FormWrapper({
               </p>
             )}
             {feeInfo && (
-              <p>
-                <span className="font-semibold">Fee:</span> {feeInfo}
-              </p>
+              <div>
+                <p>
+                  <span className="font-semibold">Fee:</span>
+                </p>
+                <div className="whitespace-pre-line">{feeInfo}</div>
+              </div>
             )}
           </div>
         ) : null}

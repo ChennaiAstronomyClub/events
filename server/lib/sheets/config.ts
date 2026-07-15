@@ -11,6 +11,7 @@ export const GUEST_FORM_SHEET_TABS: Record<string, string> = {
 
 /** formId → sheetTab for all forms (keep in sync with src/config/forms.ts). */
 export const FORM_ID_SHEET_TABS: Record<string, string> = {
+  "perseids-2026": "Perseids Entries",
   "city-meetup-july-4": "July 4 Entries",
   "visual-astronomy-june-2026": "June 13 Entries",
   "city-meetup-may-31": "May 31 Entries",

@@ -96,13 +96,19 @@ export interface FormConfig {
     when?: { field: string; value: string };
     message: string;
   };
-  /** Either additional adults or children — not both; each type has its own cap */
+  /**
+   * Caps for additional adults/kids when bringingParticipants is yes.
+   * Without maxTotal: allowed (1 adult) OR (1 kid) OR (2 kids) — not mixed.
+   * With maxTotal: any mix where adults ≤ maxAdults, kids ≤ maxKids, and adults+kids ≤ maxTotal.
+   */
   additionalParticipants?: {
     when: { field: string; value: string };
     adultField: string;
     kidField: string;
     maxAdults: number;
     maxKids: number;
+    /** Max additional adults + kids combined (allows mixed adult+kid when set) */
+    maxTotal?: number;
     messageBoth: string;
     messageNone: string;
     messageTooManyAdults: string;
@@ -117,4 +123,6 @@ export interface FormConfig {
   updateExistingRegistration?: boolean;
   /** If true, users may register without Discourse login; email must be collected in the form. */
   allowGuestRegistration?: boolean;
+  /** If true, skip the sheet capacity/availability probe and show the form immediately. */
+  skipCapacityCheck?: boolean;
 }

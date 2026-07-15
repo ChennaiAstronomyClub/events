@@ -50,5 +50,7 @@ export function EventDescription({
 
   if (!description) return null;
 
-  return <CardDescription>{description}</CardDescription>;
+  return (
+    <CardDescription className="whitespace-pre-line">{description}</CardDescription>
+  );
 }

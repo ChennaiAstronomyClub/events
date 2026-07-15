@@ -172,6 +172,7 @@ export function FormPage() {
   const hasRegistrationIdentity = Boolean(user || (isGuestMode && guestEmail));
   const shouldCheckCapacity = Boolean(
     config &&
+      !config.skipCapacityCheck &&
       hasRegistrationIdentity &&
       !alreadySubmitted &&
       regStatus === "open" &&
@@ -435,10 +436,12 @@ export function FormPage() {
 
   const canShowRegistrationForm = isBackfillForm
     ? regStatus === "open"
-    : shouldCheckCapacity &&
-      capacityCheck.status === "ready" &&
-      !capacityCheck.isFull &&
-      (!requiresPayment || hasActiveHold);
+    : config?.skipCapacityCheck
+      ? regStatus === "open" && hasRegistrationIdentity && !alreadySubmitted
+      : shouldCheckCapacity &&
+        capacityCheck.status === "ready" &&
+        !capacityCheck.isFull &&
+        (!requiresPayment || hasActiveHold);
 
   // ---- Early returns ----
 
