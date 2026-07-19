@@ -35,6 +35,7 @@ const SHARED_SECRET = "9f201af7a3ac8dc296481909bacc9242";
 const MAX_PAYLOAD_BYTES = 50000; // ~50 KB
 // Per-sheet cap for active registrations (excluding cancelled rows).
 const REGISTRATION_LIMITS = {
+  "August 2 Entries": 23,
   "July 4 Entries": 23,
   "June 13 Entries": 20,
   "May 31 Entries": 6,
