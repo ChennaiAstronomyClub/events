@@ -135,6 +135,12 @@ export function HomePage() {
                   </div>
                 ) : null}
                 <NoticeAlert formId={form.id} />
+                {(regStatus === "closed" || isEventOver(form)) &&
+                  form.registrationClosedMessage && (
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      {form.registrationClosedMessage}
+                    </p>
+                  )}
               </CardHeader>
               <CardFooter className="pt-0">
                 {buttonDisabled ? (

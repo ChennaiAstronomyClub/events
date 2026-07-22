@@ -82,6 +82,8 @@ export interface FormConfig {
   registrationOpensAt?: string;
   /** ISO datetime — registration is blocked after this time */
   registrationClosesAt?: string;
+  /** Optional message shown when registration is closed (overrides the default) */
+  registrationClosedMessage?: string;
   sheetTab: string;
   fields: FormFieldConfig[];
   /** Require at least one of these fields to be filled */

@@ -630,7 +630,8 @@ export function FormPage() {
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
               {regStatus === "closed"
-                ? `Registration for ${config.title} has closed.`
+                ? (config.registrationClosedMessage ??
+                  `Registration for ${config.title} has closed.`)
                 : `Registration for ${config.title} opens on ${opensDate}.`}
             </p>
             <Button asChild variant="outline" className="w-full">
