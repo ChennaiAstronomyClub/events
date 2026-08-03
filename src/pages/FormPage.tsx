@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useFormSubmit } from "@/hooks/useFormSubmit";
 import { useHoldCountdown } from "@/hooks/useHoldCountdown";
 import { getFormConfig, getRegistrationStatus, isEventOver } from "@/config/forms";
-import { isVerifiedUser, VERIFIED_GROUP_NAME } from "@/config/discourse-fields";
+import { isVerifiedUser, VERIFIED_GROUP_NAME, PHONE_FIELD_ID } from "@/config/discourse-fields";
 import { CAPACITY_CHECK_SAFETY_MS } from "@/lib/api-timeouts";
 import { updateUserFields } from "@/lib/discourse-api";
+import {
+  hasWhitelistInviteParams,
+  parseWhitelistInviteParams,
+} from "@/lib/whitelist-invite";
 import {
   isHoldExpiredError,
   isRetriableError,
@@ -21,6 +25,7 @@ import {
   reserveRegistrationSlot,
   updateRegistration,
 } from "@/lib/google-sheets";
+import { useRegistrationWhitelistCheck } from "@/hooks/useRegistrationWhitelistCheck";
 import { DynamicForm, type SaveToProfileField } from "@/components/forms/DynamicForm";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
@@ -60,19 +65,35 @@ const EMPTY_CAPACITY_CHECK: CapacityCheckState = {
 export function FormPage() {
   const { formId } = useParams<{ formId: string }>();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { user, apiKey, refreshUser, login, isLoading: authLoading } = useAuth();
   const { isSubmitting, isDuplicate, error, submit } = useFormSubmit();
   const navigate = useNavigate();
 
   const config = formId ? getFormConfig(formId) : undefined;
-  const isGuestMode = Boolean(config?.allowGuestRegistration && !user);
+  const inviteIdentity = useMemo(
+    () => parseWhitelistInviteParams(searchParams),
+    [searchParams]
+  );
+  const hasInvite = hasWhitelistInviteParams(inviteIdentity);
+  const isWhitelistInviteGuest = Boolean(
+    config?.allowsRegistrationWhitelist && hasInvite && !user
+  );
+  const isGuestMode = Boolean(
+    ((config?.allowGuestRegistration && !user) || isWhitelistInviteGuest)
+  );
   const isBackfillForm = Boolean(config?.updateExistingRegistration);
   const [submissionRev, setSubmissionRev] = useState(0);
   const [backfillSubmitting, setBackfillSubmitting] = useState(false);
   const [backfillError, setBackfillError] = useState<string | null>(null);
-  const [guestEmail, setGuestEmail] = useState<string | null>(null);
-  const [continuingAsGuest, setContinuingAsGuest] = useState(false);
-  const [emailGateDraft, setEmailGateDraft] = useState("");
+  const [guestEmail, setGuestEmail] = useState<string | null>(() => {
+    const email = inviteIdentity.email?.trim();
+    return email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+  });
+  const [continuingAsGuest, setContinuingAsGuest] = useState(() => isWhitelistInviteGuest);
+  const [emailGateDraft, setEmailGateDraft] = useState(
+    () => inviteIdentity.email?.trim() ?? ""
+  );
   const [emailGateError, setEmailGateError] = useState<string | null>(null);
 
   // Check if this user already submitted this form (client-side quick check)
@@ -81,9 +102,9 @@ export function FormPage() {
     const s = storage.getFormSubmission(config.id);
     if (!s) return null;
     if (user) return s.email === user.email ? s : null;
-    if (config.allowGuestRegistration) return s;
+    if (config.allowGuestRegistration || isWhitelistInviteGuest) return s;
     return null;
-  }, [config, user, submissionRev]);
+  }, [config, user, submissionRev, isWhitelistInviteGuest]);
 
   const alreadySubmitted = submission !== null || isDuplicate;
 
@@ -169,13 +190,36 @@ export function FormPage() {
   }
 
   const regStatus = config ? getRegistrationStatus(config) : "open";
+  const identityPhone =
+    user?.user_fields?.[PHONE_FIELD_ID] ?? inviteIdentity.phone ?? null;
+  const identityEmail = user?.email ?? guestEmail ?? inviteIdentity.email ?? null;
+  const needsWhitelistCheck = Boolean(
+    config?.allowsRegistrationWhitelist &&
+      regStatus !== "open" &&
+      config &&
+      !isEventOver(config) &&
+      !alreadySubmitted &&
+      ((user && apiKey) || hasInvite)
+  );
+  const { status: whitelistStatus, allowed: isWhitelisted } =
+    useRegistrationWhitelistCheck({
+      enabled: needsWhitelistCheck,
+      formId: config?.id,
+      apiKey,
+      user,
+      email: identityEmail,
+      phone: identityPhone,
+    });
+  const registrationAllowed =
+    regStatus === "open" ||
+    Boolean(isWhitelisted && config && !isEventOver(config));
   const hasRegistrationIdentity = Boolean(user || (isGuestMode && guestEmail));
   const shouldCheckCapacity = Boolean(
     config &&
       !config.skipCapacityCheck &&
       hasRegistrationIdentity &&
       !alreadySubmitted &&
-      regStatus === "open" &&
+      registrationAllowed &&
       !isBackfillForm
   );
   const isCheckingCapacity =
@@ -311,9 +355,11 @@ export function FormPage() {
 
       // Reserve success sets isFull when the event hits capacity (activeCount >= limit).
       // That is informational for others — a user with expiresAt must not be turned away.
+      // Whitelisted identities may register even when the event reports full.
       const isFull =
-        result.error === "full" ||
-        (Boolean(result.success && result.isFull) && !result.expiresAt);
+        !isWhitelisted &&
+        (result.error === "full" ||
+          (Boolean(result.success && result.isFull) && !result.expiresAt));
 
       if (isFull) {
         setCapacityCheck({
@@ -394,6 +440,8 @@ export function FormPage() {
       user: user ?? undefined,
       guestUser:
         isGuestMode && guestEmail ? { email: guestEmail } : undefined,
+      phone: identityPhone ?? undefined,
+      email: !user ? identityEmail ?? undefined : undefined,
     };
 
     const checkPromise = needsPayment
@@ -428,6 +476,7 @@ export function FormPage() {
     user?.email,
     guestEmail,
     isGuestMode,
+    isWhitelisted,
     config,
     shouldCheckCapacity,
     checkAttempt,
@@ -435,12 +484,12 @@ export function FormPage() {
   ]);
 
   const canShowRegistrationForm = isBackfillForm
-    ? regStatus === "open"
+    ? registrationAllowed
     : config?.skipCapacityCheck
-      ? regStatus === "open" && hasRegistrationIdentity && !alreadySubmitted
+      ? registrationAllowed && hasRegistrationIdentity && !alreadySubmitted
       : shouldCheckCapacity &&
         capacityCheck.status === "ready" &&
-        !capacityCheck.isFull &&
+        (!capacityCheck.isFull || isWhitelisted) &&
         (!requiresPayment || hasActiveHold);
 
   // ---- Early returns ----
@@ -456,7 +505,7 @@ export function FormPage() {
     );
   }
 
-  if (!user && !config.allowGuestRegistration) return null;
+  if (!user && !config.allowGuestRegistration && !isWhitelistInviteGuest) return null;
 
   if (authLoading) {
     return (
@@ -492,9 +541,10 @@ export function FormPage() {
 
   const showAuthChoice =
     isGuestMode &&
+    !isWhitelistInviteGuest &&
     !continuingAsGuest &&
     !alreadySubmitted &&
-    regStatus === "open" &&
+    registrationAllowed &&
     !isBackfillForm &&
     !isEventOver(config);
 
@@ -503,7 +553,7 @@ export function FormPage() {
     continuingAsGuest &&
     !guestEmail &&
     !alreadySubmitted &&
-    regStatus === "open" &&
+    registrationAllowed &&
     !isBackfillForm;
 
   if (showAuthChoice) {
@@ -542,8 +592,9 @@ export function FormPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              We&apos;ll reserve a seat for 5 minutes while you complete registration
-              for {config.title}.
+              {isWhitelistInviteGuest
+                ? `Enter the email to use for your ${config.title} registration.`
+                : `We'll reserve a seat for 5 minutes while you complete registration for ${config.title}.`}
             </p>
             <div className="space-y-2">
               <Label htmlFor="guest-email">Email ID</Label>
@@ -565,17 +616,19 @@ export function FormPage() {
             <Button className="w-full" onClick={handleEmailGateContinue}>
               Continue
             </Button>
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => {
-                setContinuingAsGuest(false);
-                setEmailGateDraft("");
-                setEmailGateError(null);
-              }}
-            >
-              Sign in with forum instead
-            </Button>
+            {!isWhitelistInviteGuest && (
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setContinuingAsGuest(false);
+                  setEmailGateDraft("");
+                  setEmailGateError(null);
+                }}
+              >
+                Sign in with forum instead
+              </Button>
+            )}
             <Button asChild variant="ghost" className="w-full">
               <Link to="/">Back to Home</Link>
             </Button>
@@ -606,9 +659,29 @@ export function FormPage() {
   }
 
   // Block new registrations when the window is closed/not-yet-open.
-  // Already-registered users bypass this so they can still manage their registration.
+  // Whitelisted emails/phones and already-registered users bypass this.
 
-  if (regStatus !== "open" && !alreadySubmitted) {
+  if (needsWhitelistCheck && whitelistStatus === "checking") {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Checking Access</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Checking whether you can still register for {config.title}...
+            </p>
+            <Button asChild variant="outline" className="w-full">
+              <Link to="/">Back to Home</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!registrationAllowed && !alreadySubmitted) {
     const opensDate = config.registrationOpensAt
       ? new Date(config.registrationOpensAt).toLocaleString("en-IN", {
           month: "short",
@@ -687,7 +760,12 @@ export function FormPage() {
     );
   }
 
-  if (shouldCheckCapacity && capacityCheck.status === "ready" && capacityCheck.isFull) {
+  if (
+    shouldCheckCapacity &&
+    capacityCheck.status === "ready" &&
+    capacityCheck.isFull &&
+    !isWhitelisted
+  ) {
     return (
       <div className="flex items-center justify-center py-12">
         <Card className="w-full max-w-md">
@@ -924,6 +1002,10 @@ export function FormPage() {
         requiresPayment: Boolean(config!.requiresPayment),
         guestUser: { email: guestEmail },
         holdToken,
+        phone:
+          (typeof data.phone === "string" && data.phone.trim()) ||
+          inviteIdentity.phone ||
+          undefined,
       });
 
       if (isHoldExpiredError(result.error)) {
@@ -1049,8 +1131,30 @@ export function FormPage() {
       <DynamicForm
         config={config}
         user={user ?? null}
-        prefillValues={isGuestMode && guestEmail ? { email: guestEmail } : undefined}
-        readOnlyFields={isGuestMode && guestEmail ? ["email"] : undefined}
+        prefillValues={
+          isGuestMode
+            ? {
+                ...(guestEmail ? { email: guestEmail } : {}),
+                ...(inviteIdentity.phone ? { phone: inviteIdentity.phone } : {}),
+              }
+            : undefined
+        }
+        readOnlyFields={(() => {
+          if (!isGuestMode) return undefined;
+          const fields: string[] = [];
+          if (guestEmail) {
+            // Lock email when it came from the invite link or the open-guest email gate.
+            if (
+              !isWhitelistInviteGuest ||
+              (inviteIdentity.email &&
+                guestEmail.toLowerCase() === inviteIdentity.email.toLowerCase())
+            ) {
+              fields.push("email");
+            }
+          }
+          if (inviteIdentity.phone) fields.push("phone");
+          return fields.length > 0 ? fields : undefined;
+        })()}
         onSubmit={handleSubmit}
         isSubmitting={isBackfillForm ? backfillSubmitting : isSubmitting}
         submitDisabled={config.requiresPayment && !hasActiveHold}

@@ -117,6 +117,7 @@ export const formConfigs: FormConfig[] = [
     id: "perseids-2026",
     requiresPayment: false,
     skipCapacityCheck: true,
+    allowsRegistrationWhitelist: true,
     registrationClosesAt: "2026-07-22T00:00:00",
     registrationClosedMessage:
       "Registration for the Perseids Meteor Shower - 2026 has closed. If you need assistance, please contact us at hello@chennaiastronomyclub.org.",

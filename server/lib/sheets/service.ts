@@ -1,4 +1,4 @@
-import { PENDING_SEAT_HOLD_MS, REGISTRATION_LIMITS } from "./config.js";
+import { PENDING_SEAT_HOLD_MS, REGISTRATION_LIMITS, registrationWhitelistForForm } from "./config.js";
 import {
   consolidateDuplicatePendingRows,
   findActiveRowByEmailInData,
@@ -10,6 +10,7 @@ import {
   type ScanOptions,
   type SheetData,
 } from "./logic.js";
+import { matchesRegistrationWhitelist } from "./whitelist.js";
 import { createRepository, type SheetRepository } from "./repository.js";
 import { getSpreadsheetId } from "./client.js";
 import { withSheetTabLock } from "./mutex.js";
@@ -55,6 +56,36 @@ export interface DispatchInput {
 function scanOpts(body: Record<string, unknown>): ScanOptions | undefined {
   const formId = typeof body.formId === "string" ? body.formId.trim() : "";
   return formId ? { formId } : undefined;
+}
+
+function phoneFromBody(body: Record<string, unknown>): string | null {
+  if (typeof body.phone === "string" && body.phone.trim()) {
+    return body.phone.trim();
+  }
+  const formData =
+    body.formData && typeof body.formData === "object"
+      ? (body.formData as Record<string, unknown>)
+      : null;
+  if (formData && typeof formData.phone === "string" && formData.phone.trim()) {
+    return formData.phone.trim();
+  }
+  return null;
+}
+
+function isCapacityBypassed(
+  body: Record<string, unknown>,
+  user: RegistrationUser
+): boolean {
+  const formId = typeof body.formId === "string" ? body.formId.trim() : "";
+  if (!formId) return false;
+  // Authenticated users: trust Discourse email only — never client-supplied phone.
+  // Guest invite links: phone from the invite/form may authorize when email is not listed.
+  const phone =
+    user.memberType === "guest" ? phoneFromBody(body) : null;
+  return matchesRegistrationWhitelist(registrationWhitelistForForm(formId), {
+    email: user.email,
+    phone,
+  });
 }
 
 function isAtCapacity(
@@ -328,8 +359,9 @@ async function handleReserveWork(
   const preData = await repo.readSheetData();
   const preScan = scanRegistrations(preData.headers, preData.rows, now.getTime(), opts);
   const preActiveRow = findActiveRowByEmailInData(preData.headers, preData.rows, email);
+  const bypassCapacity = isCapacityBypassed(body, user);
 
-  if (preActiveRow <= 0 && isAtCapacity(preScan, limit)) {
+  if (preActiveRow <= 0 && !bypassCapacity && isAtCapacity(preScan, limit)) {
     return registrationFullResponse();
   }
 
@@ -377,7 +409,7 @@ async function handleReserveWork(
       return result;
     }
 
-    if (isAtCapacity(scan, limit)) {
+    if (!bypassCapacity && isAtCapacity(scan, limit)) {
       return registrationFullResponse();
     }
 
@@ -385,7 +417,7 @@ async function handleReserveWork(
     const expiresAt = new Date(now.getTime() + PENDING_SEAT_HOLD_MS).toISOString();
     const appendedRow = await repo.appendRow(cols, reserveFields);
 
-    if (typeof limit !== "number") {
+    if (typeof limit !== "number" || bypassCapacity) {
       await invalidateRegistrationCaches(sheetTab);
       const result = reserveSuccessPayload(appendedRow, expiresAt, scan, limit);
       await cacheHoldFromResponse(sheetTab, email, result, scan.activeCount);
@@ -636,7 +668,11 @@ async function handleSubmit(
       };
     }
 
-    if (typeof limit === "number" && activeRegistrations >= limit) {
+    if (
+      !isCapacityBypassed(body, user) &&
+      typeof limit === "number" &&
+      activeRegistrations >= limit
+    ) {
       return {
         success: false,
         error: "full",

@@ -49,6 +49,10 @@ export interface RegistrationCallOptions {
   user?: DiscourseUser | null;
   guestUser?: GuestUser;
   holdToken?: string;
+  /** Optional phone for registration whitelist matching on the server. */
+  phone?: string;
+  /** Optional email for guest whitelist invite matching (no Discourse session). */
+  email?: string;
 }
 
 function delay(ms: number): Promise<void> {
@@ -102,6 +106,12 @@ async function callRegistrationsApiOnce<T>(
 
   let body = withDiscourseUser(payload, options?.user);
   body = enrichGuestPayload(body, options);
+  if (options?.phone?.trim()) {
+    body = { ...body, phone: options.phone.trim() };
+  }
+  if (options?.email?.trim()) {
+    body = { ...body, email: options.email.trim() };
+  }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -163,6 +173,19 @@ async function callRegistrationsApi<T>(
     await delay(RETRY_BASE_MS * (attempt + 1));
   }
   return last as T;
+}
+
+export async function checkRegistrationWhitelist(
+  formId: string,
+  options: RegistrationCallOptions
+): Promise<{ success: boolean; allowed?: boolean; error?: string; message?: string }> {
+  return callRegistrationsApiOnce(
+    {
+      action: "whitelistCheck",
+      formId,
+    },
+    options
+  );
 }
 
 export async function submitToSheets(

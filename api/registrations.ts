@@ -9,7 +9,10 @@ import "../server/lib/sheets/client.js";
 import {
   GUEST_REGISTRATION_FORM_IDS,
   expectedSheetTabForForm,
+  isWhitelistUnpaidForm,
+  registrationWhitelistForForm,
 } from "../server/lib/sheets/config.js";
+import { matchesRegistrationWhitelist } from "../server/lib/sheets/whitelist.js";
 import {
   createHoldToken,
   resolveHoldToken,
@@ -51,6 +54,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!discourseUrl) {
     return res.status(500).json({ success: false, error: "Server configuration missing" });
   }
+
+  const body = req.body as Record<string, unknown> | undefined;
+  const actionRaw = typeof body?.action === "string" ? body.action.trim() : "";
+
+  // Whitelist check is env-backed and does not need Sheets.
+  if (actionRaw === "whitelistCheck") {
+    return handleWhitelistCheck(req, res, discourseUrl, body ?? {});
+  }
+
   if (!isSheetsApiConfigured()) {
     return res.status(500).json({
       success: false,
@@ -60,7 +72,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
-  const body = req.body as Record<string, unknown> | undefined;
   const sheetTab = typeof body?.sheetTab === "string" ? body.sheetTab.trim() : "";
   if (!sheetTab) return res.status(400).json({ success: false, error: "Missing sheetTab" });
 
@@ -72,8 +83,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (tabMismatch) return res.status(400).json(tabMismatch);
 
   const userApiKey = req.headers["user-api-key"] as string | undefined;
-  const isGuestForm = formId.length > 0 && GUEST_REGISTRATION_FORM_IDS.has(formId);
-  const isGuestRequest = !userApiKey && isGuestForm;
+  const isOpenGuestForm = formId.length > 0 && GUEST_REGISTRATION_FORM_IDS.has(formId);
+  const whitelistGuestOk =
+    !userApiKey &&
+    formId.length > 0 &&
+    isWhitelistGuestIdentity(formId, body ?? {});
+  const isGuestRequest = Boolean(!userApiKey && (isOpenGuestForm || whitelistGuestOk));
 
   if (!userApiKey && !isGuestRequest) {
     return res.status(401).json({ success: false, error: "Unauthorized" });
@@ -97,6 +112,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     user = guestResolved.user;
     memberType = "guest";
     holdTokenForRelease = guestResolved.holdToken;
+
+    // Whitelist-only guest forms must match env on every mutating/status call.
+    if (!isOpenGuestForm && action !== "status") {
+      const phone = phoneFromRegistrationBody(body ?? {});
+      if (
+        !matchesRegistrationWhitelist(registrationWhitelistForForm(formId), {
+          email: user.email,
+          phone,
+        })
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "This invite is not authorized for registration.",
+        });
+      }
+    }
   } else if (action === "status") {
     user = { username: "", email: "", groups: [] };
     memberType = "regular";
@@ -124,6 +156,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const submitBody = buildSubmitBody(body, user, memberType, action);
+    const phone =
+      typeof body?.phone === "string" && body.phone.trim()
+        ? body.phone.trim()
+        : undefined;
     const result = await dispatchRegistration({
       action,
       sheetTab,
@@ -136,6 +172,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             : {
                 formId: formId || "",
                 requiresPayment: body?.requiresPayment === true,
+                ...(phone ? { phone } : {}),
               },
     });
 
@@ -203,6 +240,47 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function phoneFromRegistrationBody(body: Record<string, unknown>): string | null {
+  if (typeof body.phone === "string" && body.phone.trim()) {
+    return body.phone.trim();
+  }
+  const formData =
+    body.formData && typeof body.formData === "object"
+      ? (body.formData as Record<string, unknown>)
+      : null;
+  if (formData && typeof formData.phone === "string" && formData.phone.trim()) {
+    return formData.phone.trim();
+  }
+  return null;
+}
+
+function emailFromRegistrationBody(body: Record<string, unknown>): string | null {
+  const guest = parseGuestUser(body);
+  if (guest?.email) return guest.email.trim();
+  if (typeof body.email === "string" && body.email.trim()) return body.email.trim();
+  const formData =
+    body.formData && typeof body.formData === "object"
+      ? (body.formData as Record<string, unknown>)
+      : null;
+  if (formData && typeof formData.email === "string" && formData.email.trim()) {
+    return formData.email.trim();
+  }
+  return null;
+}
+
+/** Guest may register on a non-open-guest form only when identity matches env whitelist. */
+function isWhitelistGuestIdentity(
+  formId: string,
+  body: Record<string, unknown>
+): boolean {
+  const whitelist = registrationWhitelistForForm(formId);
+  if (!whitelist) return false;
+  return matchesRegistrationWhitelist(whitelist, {
+    email: emailFromRegistrationBody(body),
+    phone: phoneFromRegistrationBody(body),
+  });
+}
+
 async function resolveGuestUser(
   body: Record<string, unknown>,
   action: RegistrationAction,
@@ -210,7 +288,9 @@ async function resolveGuestUser(
   sheetTab: string,
   res: VercelResponse
 ): Promise<{ user: DiscourseUserSummary; holdToken?: string } | null> {
-  if (!GUEST_REGISTRATION_FORM_IDS.has(formId)) {
+  const isOpenGuest = GUEST_REGISTRATION_FORM_IDS.has(formId);
+  const isWhitelistForm = Boolean(registrationWhitelistForForm(formId));
+  if (!isOpenGuest && !isWhitelistForm) {
     res.status(403).json({ success: false, error: "Forbidden" });
     return null;
   }
@@ -235,6 +315,37 @@ async function resolveGuestUser(
         email: guestUser.email,
         groups: [],
       },
+    };
+  }
+
+  // Hold-less guest submit — only for server-known unpaid whitelist forms (never trust client requiresPayment).
+  if (action === "submit" && isWhitelistUnpaidForm(formId)) {
+    const guestUser = parseGuestUser(body);
+    const formData =
+      body.formData && typeof body.formData === "object"
+        ? (body.formData as Record<string, unknown>)
+        : {};
+    const formEmail =
+      typeof formData.email === "string" ? formData.email.trim() : "";
+    const email = guestUser?.email || formEmail;
+    if (!email || !isValidEmail(email)) {
+      res.status(400).json({
+        success: false,
+        error: "invalid_guest_email",
+        message: "A valid email is required to register.",
+      });
+      return null;
+    }
+    if (guestUser?.email && formEmail && guestUser.email.toLowerCase() !== formEmail.toLowerCase()) {
+      res.status(400).json({
+        success: false,
+        error: "email_mismatch",
+        message: "Form email must match the invite email.",
+      });
+      return null;
+    }
+    return {
+      user: { username: "", email, groups: [] },
     };
   }
 
@@ -383,6 +494,72 @@ function normalizeAction(value: unknown): RegistrationAction | null {
     return value;
   }
   return null;
+}
+
+/**
+ * Returns whether the identity may bypass closed/full registration.
+ * Uses server-only REGISTRATION_WHITELISTS env — never returns the list itself.
+ *
+ * Auth modes:
+ * - Logged-in: Discourse user email (+ optional phone from body)
+ * - Guest invite: email and/or phone from the shareable query-param link (no API key)
+ */
+async function handleWhitelistCheck(
+  req: VercelRequest,
+  res: VercelResponse,
+  discourseUrl: string,
+  body: Record<string, unknown>
+): Promise<void> {
+  const formId = typeof body.formId === "string" ? body.formId.trim() : "";
+  if (!formId || !expectedSheetTabForForm(formId)) {
+    res.status(400).json({ success: false, error: "unknown_form_id", message: "Unknown form." });
+    return;
+  }
+
+  if (!registrationWhitelistForForm(formId)) {
+    res.status(200).json({ success: true, allowed: false });
+    return;
+  }
+
+  const bodyPhone =
+    typeof body.phone === "string" && body.phone.trim() ? body.phone.trim() : null;
+  const bodyEmail =
+    typeof body.email === "string" && body.email.trim() ? body.email.trim() : null;
+
+  const userApiKey = req.headers["user-api-key"] as string | undefined;
+
+  if (!userApiKey) {
+    if (!bodyEmail && !bodyPhone) {
+      res.status(401).json({ success: false, error: "Unauthorized" });
+      return;
+    }
+    const allowed = matchesRegistrationWhitelist(
+      registrationWhitelistForForm(formId),
+      { email: bodyEmail, phone: bodyPhone }
+    );
+    res.status(200).json({ success: true, allowed });
+    return;
+  }
+
+  const resolved = await resolveRegistrationUser(
+    body,
+    discourseUrl,
+    userApiKey,
+    "submit",
+    res
+  );
+  if (!resolved) return;
+
+  const allowed = matchesRegistrationWhitelist(
+    registrationWhitelistForForm(formId),
+    {
+      // Authenticated checks use Discourse email only — ignore client phone spoofing.
+      email: resolved.user.email,
+      phone: null,
+    }
+  );
+
+  res.status(200).json({ success: true, allowed });
 }
 
 async function verifyDiscourseApiKeyCached(
