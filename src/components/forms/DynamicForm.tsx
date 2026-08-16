@@ -505,6 +505,9 @@ export function DynamicForm({
                   key={field.name}
                   field={field}
                   readOnly={isFieldReadOnly(field)}
+                  paymentPricing={
+                    field.showPayableAmount ? config.paymentPricing : undefined
+                  }
                 />
               ))}
             </div>

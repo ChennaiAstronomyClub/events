@@ -3,12 +3,14 @@
  * Keep in sync with FormConfig.allowGuestRegistration in src/config/forms.ts.
  */
 export const GUEST_REGISTRATION_FORM_IDS = new Set([
+  "city-meetup-august-30",
   "city-meetup-august-2",
   "city-meetup-july-4",
 ]);
 
 /** formId → sheetTab for guest-allowed forms (server trust boundary). */
 export const GUEST_FORM_SHEET_TABS: Record<string, string> = {
+  "city-meetup-august-30": "August 30 Entries",
   "city-meetup-august-2": "August 2 Entries",
   "city-meetup-july-4": "July 4 Entries",
 };
@@ -16,6 +18,7 @@ export const GUEST_FORM_SHEET_TABS: Record<string, string> = {
 /** formId → sheetTab for all forms (keep in sync with src/config/forms.ts). */
 export const FORM_ID_SHEET_TABS: Record<string, string> = {
   "perseids-2026": "Perseids Entries",
+  "city-meetup-august-30": "August 30 Entries",
   "city-meetup-august-2": "August 2 Entries",
   "city-meetup-july-4": "July 4 Entries",
   "visual-astronomy-june-2026": "June 13 Entries",
@@ -32,6 +35,7 @@ export function expectedSheetTabForForm(formId: string): string | undefined {
 
 /** Per-sheet registration caps (must match apps-script/sheets-proxy.js). */
 export const REGISTRATION_LIMITS: Record<string, number> = {
+  "August 30 Entries": 23,
   "August 2 Entries": 23,
   "July 4 Entries": 23,
   "June 13 Entries": 20,

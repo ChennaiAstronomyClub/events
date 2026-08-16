@@ -25,6 +25,8 @@ export interface FormFieldConfig {
   /** Optional image shown below helper text (e.g. UPI QR code) */
   helperImageUrl?: string;
   helperImageAlt?: string;
+  /** Show a live “amount to pay” total from form.paymentPricing (e.g. on the UPI field). */
+  showPayableAmount?: boolean;
   placeholder?: string;
   required?: boolean;
   validation?: FieldValidation;
@@ -63,6 +65,18 @@ export interface VerifiedSuccessInfo {
   linkLabel?: string;
 }
 
+export interface PaymentPricing {
+  /** INR charged per paying adult */
+  adultFee: number;
+  /** Field for additional adults (excluding the registrant) */
+  additionalAdultsField: string;
+  /** When set, additional adults count only if this field equals bringingYesValue */
+  bringingField?: string;
+  bringingYesValue?: string;
+  /** Registrant counts as one paying adult. Default true. */
+  includeRegistrant?: boolean;
+}
+
 export interface FormConfig {
   id: string;
   title: string;
@@ -98,6 +112,11 @@ export interface FormConfig {
     when?: { field: string; value: string };
     message: string;
   };
+  /**
+   * Live payment total: registrant counts as 1 adult, plus additionalAdultsField
+   * when bringingField matches bringingYesValue. Kids are not charged.
+   */
+  paymentPricing?: PaymentPricing;
   /**
    * Caps for additional adults/kids when bringingParticipants is yes.
    * Without maxTotal: allowed (1 adult) OR (1 kid) OR (2 kids) — not mixed.

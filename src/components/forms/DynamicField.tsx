@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { useFormContext } from "react-hook-form";
-import type { FormFieldConfig } from "@/types/forms";
+import type { FormFieldConfig, PaymentPricing } from "@/types/forms";
+import {
+  formatInr,
+  getPayableAmount,
+  getPayingAdultCount,
+} from "@/lib/payment-amount";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -17,9 +22,10 @@ import { Check, Copy, Lock } from "lucide-react";
 interface DynamicFieldProps {
   field: FormFieldConfig;
   readOnly: boolean;
+  paymentPricing?: PaymentPricing;
 }
 
-export function DynamicField({ field, readOnly }: DynamicFieldProps) {
+export function DynamicField({ field, readOnly, paymentPricing }: DynamicFieldProps) {
   const {
     register,
     setValue,
@@ -29,7 +35,29 @@ export function DynamicField({ field, readOnly }: DynamicFieldProps) {
 
   const error = errors[field.name];
   const value = watch(field.name);
+  const bringingValue = watch(paymentPricing?.bringingField ?? field.name);
+  const additionalAdultsValue = watch(
+    paymentPricing?.additionalAdultsField ?? field.name
+  );
   const [copied, setCopied] = useState(false);
+
+  const showPayableAmount = Boolean(field.showPayableAmount && paymentPricing);
+  const pricingValues: Record<string, unknown> = paymentPricing
+    ? {
+        ...(paymentPricing.bringingField
+          ? { [paymentPricing.bringingField]: bringingValue }
+          : {}),
+        [paymentPricing.additionalAdultsField]: additionalAdultsValue,
+      }
+    : {};
+  const payingAdults =
+    showPayableAmount && paymentPricing
+      ? getPayingAdultCount(paymentPricing, pricingValues)
+      : 0;
+  const payableAmount =
+    showPayableAmount && paymentPricing
+      ? getPayableAmount(paymentPricing, pricingValues)
+      : 0;
 
   const baseClass = readOnly ? "bg-muted cursor-not-allowed" : "";
 
@@ -55,8 +83,23 @@ export function DynamicField({ field, readOnly }: DynamicFieldProps) {
         </Label>
       )}
       {field.type !== "checkbox" &&
-        (field.helperText || field.helperLinkUrl || field.copyableValue || field.helperImageUrl) && (
+        (field.helperText ||
+          field.helperLinkUrl ||
+          field.copyableValue ||
+          field.helperImageUrl ||
+          showPayableAmount) && (
         <div className="mb-3 space-y-2">
+          {showPayableAmount && paymentPricing && (
+            <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2">
+              <p className="text-sm font-semibold text-foreground">
+                Amount to pay: {formatInr(payableAmount)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {payingAdults} adult{payingAdults === 1 ? "" : "s"} ×{" "}
+                {formatInr(paymentPricing.adultFee)}. Kids under 16 are free.
+              </p>
+            </div>
+          )}
           {(field.helperText || field.helperLinkUrl) && (
             <p className="text-xs text-muted-foreground">
               {field.helperText}
