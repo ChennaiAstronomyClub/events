@@ -19,6 +19,11 @@ export function Header() {
         </Link>
 
         <div className="flex items-center gap-4">
+          {isAuthenticated && user?.admin ? (
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/admin">Admin</Link>
+            </Button>
+          ) : null}
           {isAuthenticated && user ? (
             <>
               <span className="text-sm text-muted-foreground">

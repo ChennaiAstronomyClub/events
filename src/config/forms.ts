@@ -1469,3 +1469,22 @@ export function isEventOver(config: FormConfig): boolean {
   if (!config.endTime) return false;
   return new Date(config.endTime) < new Date();
 }
+
+/** Default form for the attendance check-in page (next upcoming listed event). */
+export function getDefaultAttendanceFormId(): string {
+  const listed = getListedFormConfigs();
+  const now = new Date();
+
+  const upcoming = listed
+    .filter((f) => f.startTime && new Date(f.startTime) >= now)
+    .sort(
+      (a, b) =>
+        new Date(a.startTime!).getTime() - new Date(b.startTime!).getTime()
+    );
+  if (upcoming.length > 0) return upcoming[0].id;
+
+  const notOver = listed.filter((f) => !isEventOver(f));
+  if (notOver.length > 0) return notOver[0].id;
+
+  return listed[0]?.id ?? "";
+}

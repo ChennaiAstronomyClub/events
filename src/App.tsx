@@ -7,6 +7,7 @@ import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
 import { SuccessPage } from "@/pages/SuccessPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { AdminPage } from "@/pages/AdminPage";
+import { AttendancePage } from "@/pages/AttendancePage";
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
             <Route path="/auth/callback" element={<AuthCallbackPage />} />
             <Route path="/success" element={<SuccessPage />} />
             <Route path="/admin" element={<AdminPage />} />
+            <Route path="/admin/attendance" element={<AttendancePage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </PageLayout>
