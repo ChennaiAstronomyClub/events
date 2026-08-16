@@ -1,4 +1,13 @@
 {
+  "trailingSlash": false,
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex, follow" }
+      ]
+    }
+  ],
   "functions": {
     "api/registrations.ts": {
       "maxDuration": 30
