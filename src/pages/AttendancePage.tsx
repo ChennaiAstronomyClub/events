@@ -7,6 +7,7 @@ import {
   getFormConfig,
   getListedFormConfigs,
 } from "@/config/forms";
+import { formatIstDateTime, formatIstTime } from "@/lib/datetime";
 import { AttendanceCard } from "@/components/admin/AttendanceCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -235,15 +236,8 @@ function AttendanceCheckIn() {
 
         {selectedForm?.startTime ? (
           <p className="text-xs text-muted-foreground">
-            {new Date(selectedForm.startTime).toLocaleString(undefined, {
-              dateStyle: "medium",
-              timeStyle: "short",
-            })}
-            {selectedForm.endTime
-              ? ` – ${new Date(selectedForm.endTime).toLocaleTimeString(undefined, {
-                  timeStyle: "short",
-                })}`
-              : ""}
+            {formatIstDateTime(selectedForm.startTime)}
+            {selectedForm.endTime ? ` – ${formatIstTime(selectedForm.endTime)}` : ""}
           </p>
         ) : null}
 

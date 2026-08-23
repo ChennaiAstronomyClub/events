@@ -8,6 +8,7 @@ import {
 import { PHONE_FIELD_ID } from "@/config/discourse-fields";
 import { useAuth } from "@/hooks/useAuth";
 import { useRegistrationWhitelistCheck } from "@/hooks/useRegistrationWhitelistCheck";
+import { formatIstDateTime } from "@/lib/datetime";
 import { storage } from "@/lib/storage";
 import { Card, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { EventDescription } from "@/components/events/EventDescription";
@@ -15,19 +16,6 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { NoticeAlert } from "@/components/notices/NoticeAlert";
 import type { FormConfig } from "@/types/forms";
-
-function formatDateTime(isoString?: string): string {
-  if (!isoString) return "";
-  const date = new Date(isoString);
-  return date.toLocaleString("en-IN", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-}
 
 function EventRegistrationCard({
   form,
@@ -82,7 +70,7 @@ function EventRegistrationCard({
     buttonLabel = "Register";
     buttonVariant = "default";
   } else if (regStatus === "not-yet-open") {
-    buttonLabel = `Opens ${formatDateTime(form.registrationOpensAt)}`;
+    buttonLabel = `Opens ${formatIstDateTime(form.registrationOpensAt)}`;
     buttonVariant = "secondary";
     buttonDisabled = true;
   } else {
@@ -108,13 +96,13 @@ function EventRegistrationCard({
             {form.startTime && (
               <p>
                 <span className="font-semibold">Start:</span>{" "}
-                {formatDateTime(form.startTime)}
+                {formatIstDateTime(form.startTime)}
               </p>
             )}
             {form.endTime && (
               <p>
                 <span className="font-semibold">End:</span>{" "}
-                {formatDateTime(form.endTime)}
+                {formatIstDateTime(form.endTime)}
               </p>
             )}
             {form.feeInfo && (

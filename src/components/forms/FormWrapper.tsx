@@ -2,6 +2,7 @@ import type { FormEvent, ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EventDescription } from "@/components/events/EventDescription";
+import { formatIstDateTime } from "@/lib/datetime";
 import type { FormConfig } from "@/types/forms";
 
 interface FormWrapperProps {
@@ -18,19 +19,6 @@ interface FormWrapperProps {
   submitDisabled?: boolean;
   onSubmit: (e: FormEvent) => void;
   children: ReactNode;
-}
-
-function formatDateTime(isoString?: string): string {
-  if (!isoString) return "";
-  const date = new Date(isoString);
-  return date.toLocaleString("en-IN", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
 }
 
 export function FormWrapper({
@@ -64,12 +52,12 @@ export function FormWrapper({
           <div className="mt-2 space-y-1 text-sm text-muted-foreground">
             {startTime && (
               <p>
-                <span className="font-semibold">Start:</span> {formatDateTime(startTime)}
+                <span className="font-semibold">Start:</span> {formatIstDateTime(startTime)}
               </p>
             )}
             {endTime && (
               <p>
-                <span className="font-semibold">End:</span> {formatDateTime(endTime)}
+                <span className="font-semibold">End:</span> {formatIstDateTime(endTime)}
               </p>
             )}
             {feeInfo && (

@@ -1,4 +1,11 @@
 import type { FormConfig } from "@/types/forms";
+import { parseIstDateTime } from "@/lib/datetime";
+import {
+  getRegistrationStatus as getWindowRegistrationStatus,
+  isEventOver as isWindowEventOver,
+  type RegistrationStatus,
+} from "@/lib/registration-window";
+import { FORM_REGISTRATION_WINDOWS } from "./registration-windows";
 import {
   PHONE_FIELD_ID,
   EMERGENCY_CONTACT_FIELD_ID,
@@ -6,18 +13,17 @@ import {
   AGE_GROUP_FIELD_ID,
 } from "./discourse-fields";
 
+export type { RegistrationStatus };
+
 export const formConfigs: FormConfig[] = [
   {
     id: "city-meetup-august-30",
+    ...FORM_REGISTRATION_WINDOWS["city-meetup-august-30"],
     allowGuestRegistration: true,
     requiresPayment: true,
-    registrationOpensAt: "2026-08-23T17:00:00",
-    registrationClosesAt: "2026-08-23T19:00:00",
     title: "City Meetup Series",
     talkTitle: "A Brief History of the Universe",
     talkSpeaker: "Prof. L. Sriramkumar",
-    startTime: "2026-08-30T15:30:00",
-    endTime: "2026-08-30T18:00:00",
     feeInfo: "Adults: ₹200\nKids under 16: Free",
     verifiedSuccess: {
       message: "Join the WhatsApp group using the link below. We will approve your WhatsApp group request within 2 hours of payment.",
@@ -131,14 +137,12 @@ export const formConfigs: FormConfig[] = [
   },
   {
     id: "city-meetup-august-2",
+    ...FORM_REGISTRATION_WINDOWS["city-meetup-august-2"],
     allowGuestRegistration: true,
     requiresPayment: true,
-    registrationClosesAt: "2026-08-02T18:00:00",
     title: "City Meetup Series",
     talkTitle: "Listening to the First Billion Years of the Universe",
     talkSpeaker: "Shouvik Sarkar",
-    startTime: "2026-08-02T15:30:00",
-    endTime: "2026-08-02T18:00:00",
     feeInfo: "Adults: ₹200\nKids under 16: Free",
     verifiedSuccess: {
       message: "Join the WhatsApp group using the link below. We will approve your WhatsApp group request within 2 hours of payment.",
@@ -237,17 +241,15 @@ export const formConfigs: FormConfig[] = [
   },
   {
     id: "perseids-2026",
+    ...FORM_REGISTRATION_WINDOWS["perseids-2026"],
     requiresPayment: false,
     skipCapacityCheck: true,
     allowsRegistrationWhitelist: true,
-    registrationClosesAt: "2026-07-22T00:00:00",
     registrationClosedMessage:
       "Registration for the Perseids Meteor Shower - 2026 has closed. If you need assistance, please contact us at hello@chennaiastronomyclub.org.",
     title: "Perseids Meteor Shower - 2026",
     description:
       "Register for the Perseids meteor shower overnight session — 12 August 9:00 PM to 13 August 6:00 AM.\n\nOnly night snacks and morning light refreshments (tea + snacks) are provided; please have dinner before arriving at the venue.",
-    startTime: "2026-08-12T21:00:00",
-    endTime: "2026-08-13T06:00:00",
     feeInfo: "Adults: ₹1200\nKids under 12: ₹850",
     sheetTab: "Perseids Entries",
     additionalParticipants: {
@@ -470,14 +472,12 @@ export const formConfigs: FormConfig[] = [
   },
   {
     id: "city-meetup-july-4",
+    ...FORM_REGISTRATION_WINDOWS["city-meetup-july-4"],
     allowGuestRegistration: true,
     requiresPayment: true,
-    registrationClosesAt: "2026-07-04T18:00:00",
     title: "City Meetup Series",
     talkTitle: "The Multilingual Universe",
     talkSpeaker: "Dr Sushant Raut, KREA University",
-    startTime: "2026-07-04T15:30:00",
-    endTime: "2026-07-04T18:00:00",
     feeInfo: "INR 200 per head (venue charges split among all participants)",
     verifiedSuccess: {
       message: "Join the WhatsApp group using the link below. We will approve your WhatsApp group request within 2 hours of payment.",
@@ -576,16 +576,14 @@ export const formConfigs: FormConfig[] = [
   },
   {
     id: "visual-astronomy-june-2026",
+    ...FORM_REGISTRATION_WINDOWS["visual-astronomy-june-2026"],
     requiresPayment: false,
-    registrationClosesAt: "2026-06-07T23:00:00",
     title: "First Light: Beginners' Visual Astronomy Workshop",
     eventInfoLink: {
       message: "Please read the event details before registering.",
       url: "https://forum.chennaiastronomyclub.org/t/first-light-beginners-workshop-on-visual-astronomy/",
       linkLabel: "Event details - Please read before registering",
     },
-    startTime: "2026-06-13T11:00:00",
-    endTime: "2026-06-14T07:00:00",
     feeInfo: "Limited to 15 slots. Costs shared among participants - Rs. 2000 per head",
     sheetTab: "June 13 Entries",
     additionalParticipants: {
@@ -802,14 +800,11 @@ export const formConfigs: FormConfig[] = [
   },
   {
     id: "city-meetup-may-31",
+    ...FORM_REGISTRATION_WINDOWS["city-meetup-may-31"],
     requiresPayment: true,
-    registrationOpensAt: "2026-05-29T08:30:00",
-    registrationClosesAt: "2026-05-30T00:00:00",
     title: "City Meetup Series",
     talkTitle: "Studying Undead Stars to Understand Theories of Physics",
     talkSpeaker: "Prof. Manjari Bagchi, IMSc",
-    startTime: "2026-05-31T15:30:00",
-    endTime: "2026-05-31T17:30:00",
     feeInfo: "INR 200 per head (venue charges split among all participants)",
     verifiedSuccess: {
       message: "Join the WhatsApp group using the link below. We will approve your WhatsApp group request within 2 hours of payment.",
@@ -859,12 +854,10 @@ export const formConfigs: FormConfig[] = [
   },
   {
     id: "star-party-march-2026",
+    ...FORM_REGISTRATION_WINDOWS["star-party-march-2026"],
     requiresPayment: false,
-    registrationClosesAt: "2026-03-08T00:00:00",
     title: "Star Party - March 2026",
     description: "Register your attendance for this month's star party. We are running a two night event on 13th and 14th March, so please specify which night(s) you will be joining. This will help us with logistics and planning.",
-    // startTime: "2026-03-15T18:00:00",
-    // endTime: "2026-03-15T21:00:00",
     sheetTab: "Entries",
     verifiedSuccess: {
       message: "As a regular participant, we are skipping the shortlist process for you. You can join the event WhatsApp group directly!",
@@ -1077,8 +1070,8 @@ export const formConfigs: FormConfig[] = [
     ],
   }, {
     id: "star-party-april-2026",
+    ...FORM_REGISTRATION_WINDOWS["star-party-april-2026"],
     requiresPayment: false,
-    registrationClosesAt: "2026-03-29T00:00:00",
     title: "Star Party - April 2026",
     description: "Register your attendance for April's one-night star party on 11th April. AC rooms available; no individual beds; guests will need to share sleeping space; separate rooms for boys and girls. Adult cost: 1500; child cost: 1100.",
     sheetTab: "April Entries",
@@ -1282,8 +1275,8 @@ export const formConfigs: FormConfig[] = [
   },
   {
     id: "night-sky-passport-presale",
+    ...FORM_REGISTRATION_WINDOWS["night-sky-passport-presale"],
     requiresPayment: false,
-    registrationClosesAt: "2026-05-27T00:00:00",
     title: "Night Sky Passport Presale Registration",
     description: "Register your presale request for Night Sky Passport book copies. This would help us plan the production and distribution of the book.",
     sheetTab: "Night Sky Passport Presale Entries",
@@ -1349,7 +1342,7 @@ export const formConfigs: FormConfig[] = [
     sheetTab: "June 13 Entries",
     hiddenFromListing: true,
     updateExistingRegistration: true,
-    registrationClosesAt: "2026-06-14T07:00:00",
+    ...FORM_REGISTRATION_WINDOWS["visual-astronomy-june-2026-backfill"],
     submitLabel: "Save Details",
     fields: [
       {
@@ -1449,26 +1442,18 @@ export function getListedFormConfigs(): FormConfig[] {
   return formConfigs.filter((f) => !f.hiddenFromListing);
 }
 
-export type RegistrationStatus = "not-yet-open" | "open" | "closed";
-
 /**
  * Compute whether registration is currently open, not yet open, or closed
- * based on the form's registrationOpensAt / registrationClosesAt timestamps.
+ * based on the form's registrationOpensAt / registrationClosesAt timestamps (IST).
  * If neither is set, registration is always open.
  */
 export function getRegistrationStatus(config: FormConfig): RegistrationStatus {
-  const now = new Date();
-  if (config.registrationOpensAt && new Date(config.registrationOpensAt) > now)
-    return "not-yet-open";
-  if (config.registrationClosesAt && new Date(config.registrationClosesAt) < now)
-    return "closed";
-  return "open";
+  return getWindowRegistrationStatus(config);
 }
 
 /** True once the event's endTime has passed. Forms without endTime are never over. */
 export function isEventOver(config: FormConfig): boolean {
-  if (!config.endTime) return false;
-  return new Date(config.endTime) < new Date();
+  return isWindowEventOver(config);
 }
 
 /** Default form for the attendance check-in page (next upcoming listed event). */
@@ -1477,10 +1462,10 @@ export function getDefaultAttendanceFormId(): string {
   const now = new Date();
 
   const upcoming = listed
-    .filter((f) => f.startTime && new Date(f.startTime) >= now)
+    .filter((f) => f.startTime && parseIstDateTime(f.startTime) >= now)
     .sort(
       (a, b) =>
-        new Date(a.startTime!).getTime() - new Date(b.startTime!).getTime()
+        parseIstDateTime(a.startTime!).getTime() - parseIstDateTime(b.startTime!).getTime()
     );
   if (upcoming.length > 0) return upcoming[0].id;
 

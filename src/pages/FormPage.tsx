@@ -6,6 +6,7 @@ import { useHoldCountdown } from "@/hooks/useHoldCountdown";
 import { getFormConfig, getRegistrationStatus, isEventOver } from "@/config/forms";
 import { isVerifiedUser, VERIFIED_GROUP_NAME, PHONE_FIELD_ID } from "@/config/discourse-fields";
 import { CAPACITY_CHECK_SAFETY_MS } from "@/lib/api-timeouts";
+import { formatIstDateTime } from "@/lib/datetime";
 import { updateUserFields } from "@/lib/discourse-api";
 import {
   hasWhitelistInviteParams,
@@ -682,16 +683,7 @@ export function FormPage() {
   }
 
   if (!registrationAllowed && !alreadySubmitted) {
-    const opensDate = config.registrationOpensAt
-      ? new Date(config.registrationOpensAt).toLocaleString("en-IN", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true,
-        })
-      : "";
+    const opensDate = formatIstDateTime(config.registrationOpensAt);
     return (
       <div className="flex items-center justify-center py-12">
         <Card className="w-full max-w-md">

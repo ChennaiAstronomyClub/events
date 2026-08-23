@@ -31,6 +31,8 @@ import {
   normalizePaymentStatus,
   sanitizeCell,
 } from "./utils.js";
+import { getFormRegistrationWindow } from "../../../src/config/registration-windows.js";
+import { getNewRegistrationDenial } from "../../../src/lib/registration-window.js";
 
 export interface RegistrationUser {
   username: string;
@@ -86,6 +88,19 @@ function isCapacityBypassed(
     email: user.email,
     phone,
   });
+}
+
+function denyNewRegistrationIfWindowClosed(
+  body: Record<string, unknown>,
+  user: RegistrationUser
+): Record<string, unknown> | null {
+  const formId = typeof body.formId === "string" ? body.formId.trim() : "";
+  const denial = getNewRegistrationDenial(
+    getFormRegistrationWindow(formId),
+    isCapacityBypassed(body, user)
+  );
+  if (!denial) return null;
+  return { success: false, ...denial };
 }
 
 function isAtCapacity(
@@ -324,6 +339,9 @@ async function handleReserve(
   user: RegistrationUser,
   body: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
+  const windowDenied = denyNewRegistrationIfWindowClosed(body, user);
+  if (windowDenied) return windowDenied;
+
   const email = user.email;
   const now = new Date();
   const limit = REGISTRATION_LIMITS[sheetTab];
@@ -548,6 +566,9 @@ async function handleSubmit(
   user: RegistrationUser,
   body: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
+  const windowDenied = denyNewRegistrationIfWindowClosed(body, user);
+  if (windowDenied) return windowDenied;
+
   const exclude = new Set([
     "secret",
     "sheetTab",

@@ -89,12 +89,12 @@ export interface FormConfig {
   talkTitle?: string;
   /** Speaker or subtitle line shown below talkTitle */
   talkSpeaker?: string;
-  startTime?: string; // ISO datetime string — event start time (display only)
-  endTime?: string;   // ISO datetime string — event end time (display only)
+  startTime?: string; // Naive ISO datetime — event start (IST wall clock)
+  endTime?: string;   // Naive ISO datetime — event end (IST wall clock)
   feeInfo?: string;   // Display-only fee/cost line on event cards
-  /** ISO datetime — registration is blocked before this time */
+  /** Naive ISO datetime (IST wall clock) — registration is blocked before this time */
   registrationOpensAt?: string;
-  /** ISO datetime — registration is blocked after this time */
+  /** Naive ISO datetime (IST wall clock) — registration is blocked after this time */
   registrationClosesAt?: string;
   /** Optional message shown when registration is closed (overrides the default) */
   registrationClosedMessage?: string;
