@@ -12,7 +12,7 @@ export const formConfigs: FormConfig[] = [
     allowGuestRegistration: true,
     requiresPayment: true,
     registrationOpensAt: "2026-08-23T17:00:00",
-    registrationClosesAt: "2026-08-30T18:00:00",
+    registrationClosesAt: "2026-08-23T19:00:00",
     title: "City Meetup Series",
     talkTitle: "A Brief History of the Universe",
     talkSpeaker: "Prof. L. Sriramkumar",
