@@ -11,6 +11,7 @@ export const formConfigs: FormConfig[] = [
     id: "city-meetup-august-30",
     allowGuestRegistration: true,
     requiresPayment: true,
+    registrationOpensAt: "2026-08-23T17:00:00",
     registrationClosesAt: "2026-08-30T18:00:00",
     title: "City Meetup Series",
     talkTitle: "A Brief History of the Universe",
