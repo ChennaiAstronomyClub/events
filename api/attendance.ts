@@ -6,6 +6,7 @@ import {
 import { isSheetsApiConfigured } from "../server/lib/sheets/client.js";
 import { listAttendance, updateAttendance } from "../server/lib/sheets/attendance.js";
 import { mapSheetsError } from "../server/lib/sheets/errors.js";
+import { captureServerException } from "../server/lib/sentry.js";
 
 /**
  * POST /api/attendance
@@ -76,6 +77,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ success: false, error: "Invalid action" });
   } catch (err) {
     const mapped = mapSheetsError(err);
+    await captureServerException(err);
     return res.status(mapped.status).json(mapped.body);
   }
 }

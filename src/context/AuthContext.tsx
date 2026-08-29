@@ -1,10 +1,19 @@
 import { createContext, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import * as Sentry from "@sentry/react";
 import type { AuthState } from "@/types/auth";
 import type { DiscourseUser } from "@/types/discourse";
 import { decryptPayload } from "@/lib/crypto-utils";
 import { fetchFullUser } from "@/lib/discourse-api";
 import { initiateLogin } from "@/lib/discourse-auth";
 import { storage } from "@/lib/storage";
+
+function setSentryUser(user: DiscourseUser | null) {
+  if (user?.username) {
+    Sentry.setUser({ username: user.username });
+  } else {
+    Sentry.setUser(null);
+  }
+}
 
 interface AuthContextValue extends AuthState {
   login: () => void;
@@ -30,12 +39,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const apiKey = storage.getApiKey();
     if (!apiKey) {
       storage.clearUser(); // Clean up stale user data from localStorage
+      setSentryUser(null);
       setState((s) => ({ ...s, isLoading: false }));
       return;
     }
 
     const cached = storage.getUser<DiscourseUser>();
     if (cached?.username && cached?.email) {
+      setSentryUser(cached);
       setState({
         isAuthenticated: true,
         isLoading: false,
@@ -48,6 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fetchFullUser(apiKey)
       .then((user) => {
         storage.setUser(user);
+        setSentryUser(user);
         setState({
           isAuthenticated: true,
           isLoading: false,
@@ -59,6 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => {
         if (cached?.username && cached?.email) return;
         storage.clearAll();
+        setSentryUser(null);
         setState({
           isAuthenticated: false,
           isLoading: false,
@@ -90,6 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     storage.clearAll();
+    setSentryUser(null);
     setState({
       isAuthenticated: false,
       isLoading: false,
@@ -122,6 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Fetch user profile
       const user: DiscourseUser = await fetchFullUser(decrypted.key);
       storage.setUser(user);
+      setSentryUser(user);
 
       setState({
         isAuthenticated: true,
@@ -136,6 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       storage.clearUser();
       storage.clearPrivateKey();
       storage.clearNonce();
+      setSentryUser(null);
       setState({
         isAuthenticated: false,
         isLoading: false,
@@ -152,6 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const user = await fetchFullUser(apiKey);
       storage.setUser(user);
+      setSentryUser(user);
       setState((s) => ({ ...s, user }));
     } catch {
       // Silently fail — user data stays as-is

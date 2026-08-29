@@ -23,6 +23,7 @@ import {
 import { redisGet, redisSet } from "../server/lib/redis/client.js";
 import { sendCalendarInviteIfConfigured } from "../server/lib/calendar/send.js";
 import { userApiKeyFromHeaders } from "../server/lib/discourse-admin.js";
+import { captureServerException } from "../server/lib/sentry.js";
 
 const DISCOURSE_CACHE_TTL_S = 60;
 
@@ -211,6 +212,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (err instanceof Error && err.stack) {
       console.error(err.stack);
     }
+    await captureServerException(err);
     return res.status(mapped.status).json(mapped.body);
   }
 }
@@ -232,6 +234,7 @@ async function maybeSendCalendarInvite(
       "[registrations] calendar invite failed:",
       err instanceof Error ? err.message : err
     );
+    await captureServerException(err);
   }
 }
 

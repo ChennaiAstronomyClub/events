@@ -10,6 +10,7 @@ import { sendCalendarInvites } from "../server/lib/calendar/send.js";
 import { getCalendarEvent } from "../src/lib/calendar/event.js";
 import { htmlHasText, sanitizeInviteSubject } from "../src/lib/calendar/email.js";
 import { isCalendarEmailConfigured } from "../server/lib/calendar/config.js";
+import { captureServerException } from "../server/lib/sentry.js";
 
 export const config = { maxDuration: 60 };
 
@@ -126,6 +127,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       "[calendar-invites]",
       err instanceof Error ? err.message : err
     );
+    await captureServerException(err);
     const mapped = mapSheetsError(err);
     return res.status(mapped.status).json(mapped.body);
   }

@@ -34,6 +34,9 @@ export const VERIFIED_GROUP_NAME = optionalEnv("VITE_VERIFIED_GROUP_NAME", "veri
 /** Optional Google Form URL shown to non-members */
 export const GOOGLE_FORM_URL = optionalEnv("VITE_GOOGLE_FORM_URL");
 
+/** Optional Sentry DSN (browser). When unset, the client SDK does not initialize. */
+export const SENTRY_DSN = optionalEnv("VITE_SENTRY_DSN");
+
 /** Discourse custom user-field IDs */
 export const PHONE_FIELD_ID = optionalEnv("VITE_PHONE_FIELD_ID", "2");
 export const EMERGENCY_CONTACT_FIELD_ID = optionalEnv("VITE_EMERGENCY_CONTACT_FIELD_ID", "3");

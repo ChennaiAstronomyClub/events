@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import * as Sentry from "@sentry/react";
 import { AuthProvider } from "@/context/AuthContext";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { FormRoute } from "@/components/auth/FormRoute";
@@ -16,12 +17,14 @@ const CalendarInvitesPage = lazy(() =>
   }))
 );
 
+const SentryRoutes = Sentry.wrapReactRouterRouting(Routes);
+
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <PageLayout>
-          <Routes>
+          <SentryRoutes>
             <Route path="/" element={<HomePage />} />
             <Route path="/form/:formId" element={<FormRoute />} />
             <Route path="/auth/callback" element={<AuthCallbackPage />} />
@@ -41,7 +44,7 @@ export default function App() {
               }
             />
             <Route path="*" element={<NotFoundPage />} />
-          </Routes>
+          </SentryRoutes>
         </PageLayout>
       </AuthProvider>
     </BrowserRouter>

@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { expectedSheetTabForForm } from "../server/lib/sheets/config.js";
 import { userApiKeyFromHeaders } from "../server/lib/discourse-admin.js";
+import { captureServerException } from "../server/lib/sentry.js";
 
 /**
  * GET /api/notice?formId=<id>
@@ -62,7 +63,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     notices = JSON.parse(noticeJson);
     if (!Array.isArray(notices)) return res.status(200).json([]);
-  } catch {
+  } catch (err) {
+    await captureServerException(err);
     return res.status(500).json({ error: "Invalid notice configuration" });
   }
 
@@ -84,7 +86,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const data = await dr.json();
     currentUser = data.current_user;
     if (!currentUser) return res.status(403).json({ error: "Forbidden" });
-  } catch {
+  } catch (err) {
+    await captureServerException(err);
     return res.status(500).json({ error: "Failed to verify access" });
   }
 
