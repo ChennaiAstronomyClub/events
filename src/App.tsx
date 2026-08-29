@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/context/AuthContext";
 import { PageLayout } from "@/components/layout/PageLayout";
@@ -8,6 +9,12 @@ import { SuccessPage } from "@/pages/SuccessPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { AdminPage } from "@/pages/AdminPage";
 import { AttendancePage } from "@/pages/AttendancePage";
+
+const CalendarInvitesPage = lazy(() =>
+  import("@/pages/CalendarInvitesPage").then((module) => ({
+    default: module.CalendarInvitesPage,
+  }))
+);
 
 export default function App() {
   return (
@@ -21,6 +28,18 @@ export default function App() {
             <Route path="/success" element={<SuccessPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/admin/attendance" element={<AttendancePage />} />
+            <Route
+              path="/admin/invites"
+              element={
+                <Suspense
+                  fallback={
+                    <div className="py-12 text-center text-muted-foreground">Loading…</div>
+                  }
+                >
+                  <CalendarInvitesPage />
+                </Suspense>
+              }
+            />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </PageLayout>

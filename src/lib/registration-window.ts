@@ -1,5 +1,5 @@
-import { parseIstDateTime } from "./datetime";
-import type { FormRegistrationWindow } from "../config/registration-windows";
+import { parseIstDateTime } from "./datetime.js";
+import type { FormRegistrationWindow } from "../config/registration-windows.js";
 
 export type RegistrationStatus = "not-yet-open" | "open" | "closed";
 

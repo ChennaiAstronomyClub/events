@@ -110,7 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const decrypted = decryptPayload(payload, privateKeyPem);
 
       const storedNonce = storage.getNonce();
-      if (storedNonce && decrypted.nonce !== storedNonce) {
+      if (!storedNonce || decrypted.nonce !== storedNonce) {
         throw new Error("Nonce mismatch. Please try logging in again.");
       }
 

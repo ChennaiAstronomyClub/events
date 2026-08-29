@@ -40,3 +40,11 @@ export function formatIstTime(iso?: string): string {
   if (!iso) return "";
   return parseIstDateTime(iso).toLocaleTimeString("en-IN", IST_TIME_OPTIONS);
 }
+
+/** UTC compact timestamp for ICS / Google Calendar templates: 20260830T100000Z */
+export function formatUtcCompact(iso: string): string {
+  return parseIstDateTime(iso)
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}/, "");
+}

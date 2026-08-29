@@ -9,6 +9,20 @@ function discourseBaseUrl(): string {
   );
 }
 
+/**
+ * Normalize the Discourse User-Api-Key header.
+ * Node/Vercel may expose a duplicated header as string[].
+ */
+export function userApiKeyFromHeaders(headers: {
+  "user-api-key"?: string | string[] | undefined;
+}): string | undefined {
+  const raw = headers["user-api-key"];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
 /** Verify the caller's Discourse User API Key belongs to an admin account. */
 export async function verifyDiscourseAdmin(
   userApiKey: string | undefined
@@ -24,7 +38,7 @@ export async function verifyDiscourseAdmin(
 
   try {
     const sessionRes = await fetch(`${discourseUrl}/session/current.json`, {
-      headers: { "User-Api-Key": userApiKey },
+      headers: { "User-Api-Key": userApiKey, Accept: "application/json" },
     });
     if (!sessionRes.ok) {
       return { ok: false, status: 403, error: "Forbidden" };
@@ -32,7 +46,8 @@ export async function verifyDiscourseAdmin(
     const sessionData = (await sessionRes.json()) as {
       current_user?: { admin?: boolean };
     };
-    if (!sessionData.current_user?.admin) {
+    // Discourse also has moderator/staff. Only site admin is allowed.
+    if (sessionData.current_user?.admin !== true) {
       return { ok: false, status: 403, error: "Requires Discourse admin" };
     }
     return { ok: true };

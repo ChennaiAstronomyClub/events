@@ -1,9 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { verifyDiscourseAdmin } from "../server/lib/discourse-admin.js";
-import { isSheetsApiConfigured } from "../server/lib/sheets/index.js";
+import {
+  userApiKeyFromHeaders,
+  verifyDiscourseAdmin,
+} from "../server/lib/discourse-admin.js";
+import { isSheetsApiConfigured } from "../server/lib/sheets/client.js";
 import { listAttendance, updateAttendance } from "../server/lib/sheets/attendance.js";
 import { mapSheetsError } from "../server/lib/sheets/errors.js";
-import "../server/lib/sheets/client.js";
 
 /**
  * POST /api/attendance
@@ -17,7 +19,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ success: false, error: "Method not allowed" });
   }
 
-  const userApiKey = req.headers["user-api-key"] as string | undefined;
+  const userApiKey = userApiKeyFromHeaders(req.headers);
   const adminCheck = await verifyDiscourseAdmin(userApiKey);
   if (!adminCheck.ok) {
     return res.status(adminCheck.status).json({ success: false, error: adminCheck.error });

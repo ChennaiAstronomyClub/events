@@ -1,4 +1,9 @@
-import { PENDING_SEAT_HOLD_MS, REGISTRATION_LIMITS, registrationWhitelistForForm } from "./config.js";
+import {
+  PENDING_SEAT_HOLD_MS,
+  REGISTRATION_LIMITS,
+  formRequiresPayment,
+  registrationWhitelistForForm,
+} from "./config.js";
 import {
   consolidateDuplicatePendingRows,
   findActiveRowByEmailInData,
@@ -27,7 +32,6 @@ import {
 } from "./status-cache.js";
 import {
   findHeaderIndex0,
-  isPaymentRequired,
   normalizePaymentStatus,
   sanitizeCell,
 } from "./utils.js";
@@ -502,6 +506,24 @@ async function handleCancel(
   });
 }
 
+const PROTECTED_UPDATE_KEYS = new Set([
+  "email",
+  "username",
+  "membertype",
+  "status",
+  "paymentstatus",
+  "paymentstatusupdatedat",
+  "requirespayment",
+  "seatstatus",
+  "paidat",
+  "timestamp",
+  "formid",
+  "attendanceregistrant",
+  "attendanceadults",
+  "attendancekids",
+  "attendanceupdatedat",
+]);
+
 async function handleUpdate(
   sheetTab: string,
   user: RegistrationUser,
@@ -520,42 +542,24 @@ async function handleUpdate(
       return { success: false, error: "Registration not found" };
     }
 
-    const updateKeys = Object.keys(updates as Record<string, unknown>);
-    let nextPaymentStatus = "";
-    const colNames = [...updateKeys, "UpdatedAt"];
-    if (updateKeys.includes("PaymentStatus")) {
-      colNames.push("PaymentStatusUpdatedAt");
+    const allowedUpdates = Object.entries(updates as Record<string, unknown>).filter(
+      ([key]) => !PROTECTED_UPDATE_KEYS.has(key.trim().toLowerCase())
+    );
+    if (allowedUpdates.length === 0) {
+      return { success: false, error: "No updatable fields" };
     }
+
+    const updateKeys = allowedUpdates.map(([key]) => key);
+    const colNames = [...updateKeys, "UpdatedAt"];
     const { map: colMap } = await repo.ensureColumnMap(colNames, data);
     const extras: Array<{ key: string; value: unknown }> = [];
     const now = new Date();
 
-    for (const key of updateKeys) {
-      const val = (updates as Record<string, unknown>)[key];
-      if (key === "PaymentStatus") {
-        nextPaymentStatus = normalizePaymentStatus(val);
-        if (nextPaymentStatus) extras.push({ key, value: nextPaymentStatus });
-      } else {
-        extras.push({ key, value: sanitizeCell(String(val)) });
-      }
+    for (const [key, val] of allowedUpdates) {
+      extras.push({ key, value: sanitizeCell(String(val)) });
     }
     extras.push({ key: "UpdatedAt", value: now });
-    if (nextPaymentStatus) {
-      extras.push({ key: "PaymentStatusUpdatedAt", value: now });
-    }
     await repo.updateRowCells(rowIndex, colMap, extras);
-
-    if (nextPaymentStatus) {
-      const fresh = await repo.readSheetData();
-      await updateSeatStatusForPayment(
-        repo,
-        rowIndex,
-        nextPaymentStatus,
-        sheetTab,
-        fresh.headers,
-        fresh.rows
-      );
-    }
 
     return { success: true };
   });
@@ -591,7 +595,8 @@ async function handleSubmit(
     const repo = createRepository(sheetTab);
     await repo.ensurePaymentColumns();
     const email = user.email;
-    const requiresPayment = isPaymentRequired(body.requiresPayment);
+    const formId = typeof body.formId === "string" ? body.formId.trim() : "";
+    const requiresPayment = formRequiresPayment(formId);
     const limit = REGISTRATION_LIMITS[sheetTab];
     const now = new Date();
 

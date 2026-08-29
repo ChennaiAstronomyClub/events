@@ -91,6 +91,8 @@ export interface FormConfig {
   talkSpeaker?: string;
   startTime?: string; // Naive ISO datetime — event start (IST wall clock)
   endTime?: string;   // Naive ISO datetime — event end (IST wall clock)
+  /** Venue / place text for calendar invites (ICS LOCATION). */
+  venue?: string;
   feeInfo?: string;   // Display-only fee/cost line on event cards
   /** Naive ISO datetime (IST wall clock) — registration is blocked before this time */
   registrationOpensAt?: string;

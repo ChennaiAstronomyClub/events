@@ -111,6 +111,27 @@ export function isWhitelistUnpaidForm(formId: string): boolean {
   return WHITELIST_UNPAID_FORM_IDS.has(formId.trim());
 }
 
+/**
+ * Whether a form requires payment. Keep in sync with FormConfig.requiresPayment
+ * in src/config/forms.ts. Never trust the client-supplied requiresPayment flag.
+ */
+const FORM_REQUIRES_PAYMENT: Record<string, boolean> = {
+  "perseids-2026": false,
+  "city-meetup-august-30": true,
+  "city-meetup-august-2": true,
+  "city-meetup-july-4": true,
+  "visual-astronomy-june-2026": false,
+  "city-meetup-may-31": true,
+  "star-party-march-2026": false,
+  "star-party-april-2026": false,
+  "night-sky-passport-presale": false,
+  "visual-astronomy-june-2026-backfill": false,
+};
+
+export function formRequiresPayment(formId: string): boolean {
+  return FORM_REQUIRES_PAYMENT[formId.trim()] === true;
+}
+
 /** Last column for reads (form fields + payment columns). Must cover the widest event tab. */
 export const SHEET_READ_LAST_COLUMN = "AZ";
 

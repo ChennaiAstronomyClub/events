@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   dispatchRegistration,
@@ -9,6 +10,7 @@ import "../server/lib/sheets/client.js";
 import {
   GUEST_REGISTRATION_FORM_IDS,
   expectedSheetTabForForm,
+  formRequiresPayment,
   isWhitelistUnpaidForm,
   registrationWhitelistForForm,
 } from "../server/lib/sheets/config.js";
@@ -19,6 +21,8 @@ import {
   invalidateHoldToken,
 } from "../server/lib/sheets/hold-token.js";
 import { redisGet, redisSet } from "../server/lib/redis/client.js";
+import { sendCalendarInviteIfConfigured } from "../server/lib/calendar/send.js";
+import { userApiKeyFromHeaders } from "../server/lib/discourse-admin.js";
 
 const DISCOURSE_CACHE_TTL_S = 60;
 
@@ -82,7 +86,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const tabMismatch = validateFormSheetBinding(formId, sheetTab);
   if (tabMismatch) return res.status(400).json(tabMismatch);
 
-  const userApiKey = req.headers["user-api-key"] as string | undefined;
+  const userApiKey = userApiKeyFromHeaders(req.headers);
   const isOpenGuestForm = formId.length > 0 && GUEST_REGISTRATION_FORM_IDS.has(formId);
   const whitelistGuestOk =
     !userApiKey &&
@@ -171,7 +175,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             ? { updates: body?.updates, sheetTab, formId }
             : {
                 formId: formId || "",
-                requiresPayment: body?.requiresPayment === true,
+                requiresPayment: formRequiresPayment(formId),
                 ...(phone ? { phone } : {}),
               },
     });
@@ -196,6 +200,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (holdToken) await invalidateHoldToken(holdToken);
     }
 
+    if (action === "submit" && result.success) {
+      await maybeSendCalendarInvite(formId, user.email, submitBody.name);
+    }
+
     return res.status(200).json(result);
   } catch (err: unknown) {
     const mapped = mapSheetsError(err);
@@ -204,6 +212,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       console.error(err.stack);
     }
     return res.status(mapped.status).json(mapped.body);
+  }
+}
+
+async function maybeSendCalendarInvite(
+  formId: string,
+  email: string,
+  rawName: unknown
+): Promise<void> {
+  const name = typeof rawName === "string" ? rawName.trim() : "";
+  try {
+    await sendCalendarInviteIfConfigured({
+      formId,
+      attendeeEmail: email,
+      attendeeName: name || undefined,
+    });
+  } catch (err) {
+    console.error(
+      "[registrations] calendar invite failed:",
+      err instanceof Error ? err.message : err
+    );
   }
 }
 
@@ -403,7 +431,14 @@ function parseGuestUser(body: Record<string, unknown>): { email: string } | null
 
 function shouldVerifyDiscourseOnRegistration(): boolean {
   const raw = process.env.VERIFY_DISCOURSE_ON_REGISTRATION?.trim().toLowerCase();
-  return raw === "true" || raw === "1" || raw === "yes";
+  // Fail closed: verify unless explicitly disabled.
+  if (raw === "false" || raw === "0" || raw === "no") return false;
+  return true;
+}
+
+function discourseCacheKey(kind: "session" | "user", userApiKey: string): string {
+  const hash = createHash("sha256").update(userApiKey).digest("hex");
+  return `discourse:${kind}:${hash}`;
 }
 
 async function resolveRegistrationUser(
@@ -415,11 +450,7 @@ async function resolveRegistrationUser(
 ): Promise<{ user: DiscourseUserSummary } | null> {
   if (shouldVerifyDiscourseOnRegistration()) {
     try {
-      const user = await resolveDiscourseUser(
-        discourseUrl,
-        userApiKey,
-        parseClientDiscourseUser(body)
-      );
+      const user = await resolveDiscourseUser(discourseUrl, userApiKey);
       return { user };
     } catch {
       res.status(403).json({ success: false, error: "Failed to verify user" });
@@ -478,7 +509,7 @@ function buildSubmitBody(
     memberType,
     email: user.email,
     formId: body?.formId ?? "",
-    requiresPayment: body?.requiresPayment === true,
+    requiresPayment: formRequiresPayment(typeof body?.formId === "string" ? body.formId : ""),
   };
 }
 
@@ -526,7 +557,7 @@ async function handleWhitelistCheck(
   const bodyEmail =
     typeof body.email === "string" && body.email.trim() ? body.email.trim() : null;
 
-  const userApiKey = req.headers["user-api-key"] as string | undefined;
+  const userApiKey = userApiKeyFromHeaders(req.headers);
 
   if (!userApiKey) {
     if (!bodyEmail && !bodyPhone) {
@@ -566,7 +597,7 @@ async function verifyDiscourseApiKeyCached(
   discourseUrl: string,
   userApiKey: string
 ): Promise<void> {
-  const cacheKey = `discourse:session:${userApiKey}`;
+  const cacheKey = discourseCacheKey("session", userApiKey);
   const cached = await redisGet<string>(cacheKey);
   if (cached) return;
 
@@ -607,34 +638,24 @@ function parseClientDiscourseUser(body: unknown): ClientDiscourseHint | null {
 
 async function resolveDiscourseUser(
   discourseUrl: string,
-  userApiKey: string,
-  clientHint: ClientDiscourseHint | null
+  userApiKey: string
 ): Promise<DiscourseUserSummary> {
-  const cacheKey = `discourse:user:${userApiKey}`;
+  const cacheKey = discourseCacheKey("user", userApiKey);
   const cached = await redisGet<DiscourseUserSummary>(cacheKey);
   if (cached) return cached;
 
   const session = await fetchDiscourseSession(discourseUrl, userApiKey);
-  let user: DiscourseUserSummary;
-
-  if (session.email) {
-    user = {
-      username: session.username,
-      email: session.email,
-      groups: session.groups ?? [],
-    };
-  } else if (clientHint && clientHint.username === session.username) {
-    user = {
-      username: clientHint.username,
-      email: clientHint.email,
-      groups: clientHint.groups.map((name) => ({ name })),
-    };
-  } else {
-    user = await fetchDiscourseProfile(discourseUrl, userApiKey, session.username);
-  }
+  const user: DiscourseUserSummary =
+    session.email && session.groups
+      ? {
+          username: session.username,
+          email: session.email,
+          groups: session.groups,
+        }
+      : await fetchDiscourseProfile(discourseUrl, userApiKey, session.username);
 
   await redisSet(cacheKey, user, DISCOURSE_CACHE_TTL_S);
-  await redisSet(`discourse:session:${userApiKey}`, "1", DISCOURSE_CACHE_TTL_S);
+  await redisSet(discourseCacheKey("session", userApiKey), "1", DISCOURSE_CACHE_TTL_S);
   return user;
 }
 

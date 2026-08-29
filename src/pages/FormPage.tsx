@@ -1015,6 +1015,7 @@ export function FormPage() {
         storage.markFormSubmitted(config!.id, submitEmail, data);
         navigate("/success", {
           state: {
+            formId: config!.id,
             formTitle: config!.title,
             verifiedSuccess: config!.verifiedSuccess,
           },
@@ -1043,6 +1044,7 @@ export function FormPage() {
         await saveFieldsToProfile(fieldsToSave);
         navigate("/success", {
           state: {
+            formId: config!.id,
             formTitle: config!.title,
             backfillComplete: true,
           },
@@ -1081,6 +1083,7 @@ export function FormPage() {
 
       navigate("/success", {
         state: {
+          formId: config!.id,
           formTitle: config!.title,
           verifiedSuccess: showVerifiedSuccess ? config!.verifiedSuccess : undefined,
         },

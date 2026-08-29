@@ -8,6 +8,7 @@ interface CurrentUserResponse {
     name: string;
     trust_level: number;
     email?: string;
+    admin?: boolean;
     groups?: { id: number; name: string; display_name?: string }[];
   };
 }
@@ -20,6 +21,7 @@ interface UserProfileResponse {
     email: string;
     avatar_template: string;
     trust_level: number;
+    admin?: boolean;
     bio_raw: string;
     user_fields: Record<string, string>;
     groups: { id: number; name: string; display_name?: string }[];
@@ -51,7 +53,7 @@ export async function fetchUserProfile(
   apiKey: string
 ): Promise<DiscourseUser> {
   const data = await discourseGet<UserProfileResponse>(`/u/${username}.json`, apiKey);
-  return data.user;
+  return { ...data.user, admin: data.user.admin === true };
 }
 
 /**
@@ -69,6 +71,7 @@ export async function fetchFullUser(apiKey: string): Promise<DiscourseUser> {
       email: cu.email,
       avatar_template: "",
       trust_level: cu.trust_level,
+      admin: cu.admin === true,
       bio_raw: "",
       user_fields: {},
       groups: Array.isArray(cu.groups) ? cu.groups : [],

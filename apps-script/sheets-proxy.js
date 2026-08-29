@@ -29,7 +29,12 @@
  */
 
 // ---- CONFIGURATION ----
-const SHARED_SECRET = "9f201af7a3ac8dc296481909bacc9242";
+// Do not commit a live secret. Set SHARED_SECRET in Apps Script:
+// Project Settings → Script Properties → SHARED_SECRET
+// If this web app is still deployed, rotate the secret immediately — a previous
+// value was committed to git.
+const SHARED_SECRET =
+  PropertiesService.getScriptProperties().getProperty("SHARED_SECRET") || "";
 
 // Maximum payload size (bytes). Rejects oversized requests early.
 const MAX_PAYLOAD_BYTES = 50000; // ~50 KB
@@ -1085,6 +1090,10 @@ function doPost(e) {
     }
 
     const data = JSON.parse(raw);
+
+    if (!SHARED_SECRET) {
+      return jsonResponse({ success: false, error: "Unauthorized" });
+    }
 
     // Authenticate
     if (data.secret !== SHARED_SECRET) {

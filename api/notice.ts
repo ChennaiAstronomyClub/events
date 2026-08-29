@@ -1,4 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { expectedSheetTabForForm } from "../server/lib/sheets/config.js";
+import { userApiKeyFromHeaders } from "../server/lib/discourse-admin.js";
 
 /**
  * GET /api/notice?formId=<id>
@@ -42,8 +44,14 @@ interface NoticeResponse {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") return res.status(405).end();
 
-  const formId = req.query.formId as string | undefined;
-  if (!formId) return res.status(400).json({ error: "Missing formId" });
+  const formIdRaw = req.query.formId;
+  const formId = Array.isArray(formIdRaw) ? formIdRaw[0] : formIdRaw;
+  if (!formId || typeof formId !== "string") {
+    return res.status(400).json({ error: "Missing formId" });
+  }
+  if (!expectedSheetTabForForm(formId)) {
+    return res.status(400).json({ error: "Unknown form" });
+  }
 
   // Look up notice array from env var (e.g. NOTICE_STAR_PARTY_MARCH_2026)
   const envKey = `NOTICE_${formId.toUpperCase().replace(/-/g, "_")}`;
@@ -59,15 +67,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // Require Discourse user API key
-  const apiKey = req.headers["user-api-key"] as string | undefined;
+  const apiKey = userApiKeyFromHeaders(req.headers);
   if (!apiKey) return res.status(401).json({ error: "Unauthorized" });
 
   // Fetch user data from Discourse to evaluate targeting conditions
-  const discourseUrl = (process.env.VITE_DISCOURSE_URL ?? "").replace(/\/+$/, "");
+  const discourseUrl = (process.env.DISCOURSE_URL ?? process.env.VITE_DISCOURSE_URL ?? "").replace(
+    /\/+$/,
+    ""
+  );
   let currentUser: { username: string; trust_level: number; groups: { name: string }[] };
   try {
     const dr = await fetch(`${discourseUrl}/session/current.json`, {
-      headers: { "User-Api-Key": apiKey },
+      headers: { "User-Api-Key": apiKey, Accept: "application/json" },
     });
     if (!dr.ok) return res.status(403).json({ error: "Forbidden" });
     const data = await dr.json();
