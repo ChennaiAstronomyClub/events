@@ -1,6 +1,6 @@
 # Google Sheets API (registrations backend)
 
-Registration actions (`reserve`, `status`, `submit`, etc.) run on Vercel via the **Google Sheets API** (no Apps Script web app).
+Registration actions (`reserve`, `status`, `submit`, etc.) run on Vercel via the **Google Sheets API**.
 
 ## Setup
 
@@ -25,9 +25,7 @@ GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\
 
 6. Redeploy. `/api/registrations` requires these vars.
 
-## Apps Script (optional)
-
-`apps-script/sheets-proxy.js` is only needed for **Google Form** triggers (`onFormSubmit`). The React app talks directly to `/api/registrations` → Sheets API.
+If an older Apps Script **Web app** is still deployed on the spreadsheet (Access: Anyone), archive or delete it. That public `doPost` path is unused.
 
 ## Concurrency
 

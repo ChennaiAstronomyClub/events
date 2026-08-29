@@ -1,6 +1,6 @@
 /**
- * Apps Script fetch budget on the server (excludes Discourse verification).
- * Cold starts + sheet writes can exceed 8s; keep below Vercel maxDuration.
+ * Sheets API budget on the server (excludes Discourse verification).
+ * Sheet writes can exceed 8s; keep below Vercel maxDuration.
  */
 export const SHEETS_UPSTREAM_TIMEOUT_MS = 20_000;
 

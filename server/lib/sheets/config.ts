@@ -33,7 +33,7 @@ export function expectedSheetTabForForm(formId: string): string | undefined {
   return FORM_ID_SHEET_TABS[formId.trim()];
 }
 
-/** Per-sheet registration caps (must match apps-script/sheets-proxy.js). */
+/** Per-sheet registration caps. */
 export const REGISTRATION_LIMITS: Record<string, number> = {
   "August 30 Entries": 33,
   "August 2 Entries": 23,
