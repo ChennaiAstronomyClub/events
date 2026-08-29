@@ -20,6 +20,7 @@ export const formConfigs: FormConfig[] = [
     id: "city-meetup-august-30",
     ...FORM_REGISTRATION_WINDOWS["city-meetup-august-30"],
     allowGuestRegistration: true,
+    allowsRegistrationWhitelist: true,
     requiresPayment: true,
     title: "City Meetup Series",
     talkTitle: "A Brief History of the Universe",

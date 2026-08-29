@@ -47,7 +47,7 @@ export const REGISTRATION_LIMITS: Record<string, number> = {
  * Keep in sync with FormConfig.allowsRegistrationWhitelist in src/config/forms.ts.
  * Env entries for other formIds are ignored (server trust boundary).
  */
-export const WHITELIST_REGISTRATION_FORM_IDS = new Set(["perseids-2026"]);
+export const WHITELIST_REGISTRATION_FORM_IDS = new Set(["perseids-2026", "city-meetup-august-30"]);
 
 /**
  * Whitelist forms that may submit as guest without a payment hold.
