@@ -11,6 +11,8 @@ import { getCalendarEvent } from "../src/lib/calendar/event.js";
 import { htmlHasText, sanitizeInviteSubject } from "../src/lib/calendar/email.js";
 import { isCalendarEmailConfigured } from "../server/lib/calendar/config.js";
 
+export const config = { maxDuration: 60 };
+
 /**
  * POST /api/calendar-invites
  * Headers: User-Api-Key: <discourse user api key>
@@ -120,6 +122,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
     return res.status(200).json({ success: true, formId, ...result });
   } catch (err) {
+    console.error(
+      "[calendar-invites]",
+      err instanceof Error ? err.message : err
+    );
     const mapped = mapSheetsError(err);
     return res.status(mapped.status).json(mapped.body);
   }

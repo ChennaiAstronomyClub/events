@@ -1,6 +1,5 @@
-import { Resend } from "resend";
-import { getCalendarEvent } from "../../src/lib/calendar/event.js";
-import { buildCalendarIcs } from "../../src/lib/calendar/ics.js";
+import { getCalendarEvent } from "../../../src/lib/calendar/event.js";
+import { buildCalendarIcs } from "../../../src/lib/calendar/ics.js";
 import {
   defaultInviteBody,
   defaultInviteSubject,
@@ -9,7 +8,7 @@ import {
   looksLikeHtml,
   sanitizeInviteBody,
   sanitizeInviteSubject,
-} from "../../src/lib/calendar/email.js";
+} from "../../../src/lib/calendar/email.js";
 import { sanitizeInviteHtml } from "./sanitize.js";
 import {
   getCalendarFromEmail,
@@ -35,6 +34,80 @@ export type SendCalendarInviteResult =
 export interface InviteCopy {
   subject?: string;
   body?: string;
+}
+
+const SEND_CONCURRENCY = 8;
+const RATE_LIMIT_RETRIES = 3;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runPool<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+): Promise<void> {
+  if (items.length === 0) return;
+  let index = 0;
+  async function run(): Promise<void> {
+    while (index < items.length) {
+      const current = items[index++];
+      await worker(current);
+    }
+  }
+  const n = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: n }, () => run()));
+}
+
+async function sendResendEmail(options: {
+  apiKey: string;
+  from: string;
+  to: string;
+  replyTo: string;
+  subject: string;
+  html: string;
+  text: string;
+  ics: string;
+}): Promise<{ name?: string; message: string } | null> {
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${options.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: options.from,
+      to: [options.to],
+      reply_to: options.replyTo,
+      subject: options.subject,
+      html: options.html,
+      text: options.text,
+      attachments: [
+        {
+          filename: "invite.ics",
+          content: Buffer.from(options.ics, "utf8").toString("base64"),
+          content_type: "text/calendar; charset=UTF-8; method=REQUEST",
+        },
+      ],
+      headers: {
+        "Content-Class": "urn:content-classes:calendarmessage",
+      },
+    }),
+  });
+
+  if (res.ok) return null;
+
+  let message = `Resend HTTP ${res.status}`;
+  let name: string | undefined;
+  try {
+    const body = (await res.json()) as { message?: string; name?: string };
+    if (body.message?.trim()) message = body.message.trim();
+    if (body.name?.trim()) name = body.name.trim();
+  } catch {
+    // Keep the status fallback when Resend returns a non-JSON error page.
+  }
+  return { name, message };
 }
 
 export async function sendCalendarInviteIfConfigured(
@@ -82,38 +155,31 @@ export async function sendCalendarInviteIfConfigured(
     organizerName: organizer.name,
   });
 
-  const resend = new Resend(apiKey);
-  const { error } = await resend.emails.send({
-    from,
-    to: [email],
-    replyTo,
-    subject,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "invite.ics",
-        content: Buffer.from(ics, "utf8"),
-        contentType: "text/calendar; method=REQUEST",
-      },
-    ],
-    headers: {
-      "Content-Class": "urn:content-classes:calendarmessage",
-    },
-  });
+  for (let attempt = 0; attempt <= RATE_LIMIT_RETRIES; attempt++) {
+    const error = await sendResendEmail({
+      apiKey,
+      from,
+      to: email,
+      replyTo,
+      subject,
+      html,
+      text,
+      ics,
+    });
 
-  if (error) {
+    if (!error) return { sent: true };
+
+    const rateLimited = error.name === "rate_limit_exceeded" || error.message.toLowerCase().includes("rate limit");
+    if (rateLimited && attempt < RATE_LIMIT_RETRIES) {
+      await sleep(250 * (attempt + 1));
+      continue;
+    }
+
     console.error("[calendar] Resend send failed:", error.message);
     return { sent: false, error: error.message };
   }
 
-  return { sent: true };
-}
-
-const SEND_GAP_MS = 120;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return { sent: false, error: "Send failed" };
 }
 
 export interface BulkInviteRecipient {
@@ -135,8 +201,7 @@ export async function sendCalendarInvites(
 ): Promise<BulkInviteResult> {
   const result: BulkInviteResult = { sent: 0, failed: 0, skipped: 0, errors: [] };
 
-  for (let i = 0; i < recipients.length; i++) {
-    const recipient = recipients[i];
+  await runPool(recipients, SEND_CONCURRENCY, async (recipient) => {
     try {
       const outcome = await sendCalendarInviteIfConfigured({
         formId,
@@ -159,8 +224,7 @@ export async function sendCalendarInvites(
       result.errors.push({ email: recipient.email, message });
       console.error("[calendar] invite threw:", message);
     }
-    if (i < recipients.length - 1) await sleep(SEND_GAP_MS);
-  }
+  });
 
   return result;
 }

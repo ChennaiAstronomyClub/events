@@ -177,22 +177,37 @@ function CalendarInvitesPanel() {
     if (!calendarEvent || selectedCount === 0 || !copyReady) return;
     setSending(true);
     setError(null);
-    setResultMessage(null);
+    setResultMessage(`Sending 0 of ${selectedCount}…`);
     try {
-      const data = await sendCalendarInvites(formId, [...selectedEmails], {
-        subject: subject.trim(),
-        body: body.trim(),
-      });
+      const data = await sendCalendarInvites(
+        formId,
+        [...selectedEmails],
+        {
+          subject: subject.trim(),
+          body: body.trim(),
+        },
+        ({ processed, total }) => {
+          if (total > 0) {
+            setResultMessage(`Sending ${processed} of ${total}…`);
+          }
+        }
+      );
       if (!data.success) {
         setError(data.message ?? data.error ?? "Failed to send invites");
+        if ((data.sent ?? 0) > 0) {
+          setResultMessage(
+            `Sent ${data.sent ?? 0}. Failed ${data.failed ?? 0}. Skipped ${data.skipped ?? 0}.`
+          );
+        }
         return;
       }
       setResultMessage(
         `Sent ${data.sent ?? 0}. Failed ${data.failed ?? 0}. Skipped ${data.skipped ?? 0}.`
       );
       setConfirming(false);
-    } catch {
-      setError("Network error");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to send invites";
+      setError(message);
     } finally {
       setSending(false);
     }

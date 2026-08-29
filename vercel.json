@@ -16,7 +16,7 @@
       "maxDuration": 30
     },
     "api/calendar-invites.ts": {
-      "maxDuration": 30
+      "maxDuration": 60
     }
   },
   "rewrites": [
