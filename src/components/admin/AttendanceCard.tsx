@@ -1,17 +1,28 @@
+import { useEffect, useState } from "react";
 import { Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import type { AttendanceRecord } from "@/lib/attendance";
+import {
+  clearPatch,
+  displayName,
+  expectedHeadcount,
+  formatArrivedBreakdown,
+  formatExpectedGuestHint,
+  fullPartyPatch,
+  maxAdultsTotal,
+  partialPatch,
+  presentHeadcount,
+  recordToAdultsTotal,
+  recordToKidsTotal,
+  type AttendancePatch,
+  type AttendanceRecord,
+} from "@/lib/attendance";
 import { cn } from "@/lib/utils";
 
 interface AttendanceCardProps {
   record: AttendanceRecord;
   saving: boolean;
-  onChange: (patch: {
-    registrantPresent: boolean;
-    adultsPresent: number;
-    kidsPresent: number;
-  }) => void;
+  onSave: (patch: AttendancePatch) => void;
 }
 
 function memberLabel(memberType: string): string {
@@ -21,141 +32,299 @@ function memberLabel(memberType: string): string {
   return memberType || "Member";
 }
 
-export function AttendanceCard({ record, saving, onChange }: AttendanceCardProps) {
-  const hasPlusOnes = record.adultParticipants > 0 || record.kidParticipants > 0;
-  const isPresent = record.registrantPresent;
+export function AttendanceCard({ record, saving, onSave }: AttendanceCardProps) {
+  const expected = expectedHeadcount(record);
+  const present = presentHeadcount(record);
+  const isSaved = present > 0;
+  const isFull = isSaved && present === expected;
+  const isPartialSaved = isSaved && present < expected;
+  const hasGuests = expected > 1;
+  const guestHint = formatExpectedGuestHint(record);
+  const arrivedBreakdown = formatArrivedBreakdown(record);
 
-  function toggleRegistrant() {
-    onChange({
-      registrantPresent: !record.registrantPresent,
-      adultsPresent: record.adultsPresent,
-      kidsPresent: record.kidsPresent,
-    });
+  const [partialOpen, setPartialOpen] = useState(false);
+  const [draftAdults, setDraftAdults] = useState(1);
+  const [draftKids, setDraftKids] = useState(0);
+
+  useEffect(() => {
+    setPartialOpen(false);
+  }, [record.sheetRow, record.attendanceUpdatedAt]);
+
+  function openPartialDraft(adults: number, kids: number) {
+    setDraftAdults(adults);
+    setDraftKids(kids);
+    setPartialOpen(true);
   }
 
-  function setAdults(count: number) {
-    onChange({
-      registrantPresent: record.registrantPresent,
-      adultsPresent: Math.max(0, Math.min(count, record.adultParticipants)),
-      kidsPresent: record.kidsPresent,
-    });
+  function handleCheckInFullParty() {
+    onSave(fullPartyPatch(record));
   }
 
-  function setKids(count: number) {
-    onChange({
-      registrantPresent: record.registrantPresent,
-      adultsPresent: record.adultsPresent,
-      kidsPresent: Math.max(0, Math.min(count, record.kidParticipants)),
-    });
+  function handleClear() {
+    onSave(clearPatch());
+    setPartialOpen(false);
   }
+
+  function handleSubmitPartial() {
+    onSave(partialPatch(draftAdults, draftKids, record));
+    setPartialOpen(false);
+  }
+
+  function handleEdit() {
+    openPartialDraft(recordToAdultsTotal(record), recordToKidsTotal(record));
+  }
+
+  const draftTotal = draftAdults + draftKids;
+  const maxAdults = maxAdultsTotal(record);
+  const canSubmitPartial =
+    draftTotal > 0 && draftTotal <= expected && !saving;
 
   return (
     <Card
       className={cn(
         "transition-colors",
-        isPresent && "border-green-600/40 bg-green-50/50 dark:bg-green-950/20"
+        isFull && "border-primary/25 bg-muted/20",
+        isPartialSaved && "border-amber-500/25 bg-muted/20"
       )}
     >
       <CardContent className="space-y-4 pt-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="text-lg font-semibold leading-tight">{record.name || "—"}</p>
-            {record.phone ? (
-              <p className="text-sm text-muted-foreground mt-1">{record.phone}</p>
-            ) : null}
-            <div className="mt-2 flex flex-wrap gap-2 text-xs">
-              <span className="rounded-full bg-muted px-2 py-0.5">{memberLabel(record.memberType)}</span>
-              {hasPlusOnes ? (
-                <span className="rounded-full bg-muted px-2 py-0.5">
-                  +{record.adultParticipants} adult{record.adultParticipants !== 1 ? "s" : ""}
-                  {record.kidParticipants > 0
-                    ? `, ${record.kidParticipants} kid${record.kidParticipants !== 1 ? "s" : ""}`
-                    : ""}
-                </span>
-              ) : (
-                <span className="rounded-full bg-muted px-2 py-0.5">Solo</span>
-              )}
-            </div>
-          </div>
+        <div>
+          <p className="text-xl font-bold leading-tight">{displayName(record)}</p>
+          {record.phone ? (
+            <p className="text-sm text-muted-foreground mt-1">{record.phone}</p>
+          ) : null}
+          <p className="text-sm text-muted-foreground mt-1">
+            {memberLabel(record.memberType)} · Party of {expected}
+            {guestHint ? ` · ${guestHint}` : ""}
+          </p>
         </div>
 
-        <Button
-          type="button"
-          variant={isPresent ? "default" : "outline"}
-          className={cn(
-            "h-12 w-full text-base font-semibold",
-            isPresent && "bg-green-600 hover:bg-green-700"
-          )}
-          disabled={saving}
-          onClick={toggleRegistrant}
-        >
-          {isPresent ? "Here ✓" : "Mark Here"}
-        </Button>
-
-        {record.adultParticipants > 0 ? (
-          <StepperRow
-            label={`Adults (${record.adultsPresent}/${record.adultParticipants})`}
-            value={record.adultsPresent}
-            max={record.adultParticipants}
-            disabled={saving}
-            onDecrement={() => setAdults(record.adultsPresent - 1)}
-            onIncrement={() => setAdults(record.adultsPresent + 1)}
+        {isSaved && !partialOpen ? (
+          <SavedSummary
+            present={present}
+            expected={expected}
+            isFull={isFull}
+            breakdown={arrivedBreakdown}
+            saving={saving}
+            onClear={handleClear}
+            onEdit={hasGuests ? handleEdit : undefined}
           />
-        ) : null}
-
-        {record.kidParticipants > 0 ? (
-          <StepperRow
-            label={`Kids (${record.kidsPresent}/${record.kidParticipants})`}
-            value={record.kidsPresent}
-            max={record.kidParticipants}
-            disabled={saving}
-            onDecrement={() => setKids(record.kidsPresent - 1)}
-            onIncrement={() => setKids(record.kidsPresent + 1)}
+        ) : partialOpen ? (
+          <PartialForm
+            draftAdults={draftAdults}
+            draftKids={draftKids}
+            maxAdults={maxAdults}
+            maxKids={record.kidParticipants}
+            expected={expected}
+            draftTotal={draftTotal}
+            canSubmit={canSubmitPartial}
+            saving={saving}
+            onAdultsChange={setDraftAdults}
+            onKidsChange={setDraftKids}
+            onSubmit={handleSubmitPartial}
+            onCancel={() => setPartialOpen(false)}
           />
-        ) : null}
+        ) : hasGuests ? (
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="default"
+              className="h-12 flex-1 text-base font-semibold"
+              disabled={saving}
+              onClick={handleCheckInFullParty}
+            >
+              All {expected}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-12 flex-1 text-base font-semibold"
+              disabled={saving}
+              onClick={() => openPartialDraft(1, 0)}
+            >
+              Partial
+            </Button>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            variant="default"
+            className="h-12 w-full text-base font-semibold"
+            disabled={saving}
+            onClick={handleCheckInFullParty}
+          >
+            Check In
+          </Button>
+        )}
       </CardContent>
     </Card>
   );
 }
 
-function StepperRow({
+function SavedSummary({
+  present,
+  expected,
+  isFull,
+  breakdown,
+  saving,
+  onClear,
+  onEdit,
+}: {
+  present: number;
+  expected: number;
+  isFull: boolean;
+  breakdown: string | null;
+  saving: boolean;
+  onClear: () => void;
+  onEdit?: () => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <p className="text-sm font-medium tabular-nums">
+          {isFull ? `${present} arrived` : `${present} of ${expected} arrived`}
+        </p>
+        {breakdown ? (
+          <p className="text-sm text-muted-foreground tabular-nums">{breakdown}</p>
+        ) : null}
+        {saving ? (
+          <p className="text-xs text-muted-foreground">Saving…</p>
+        ) : null}
+      </div>
+      <div className="flex gap-2">
+        {onEdit ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1"
+            disabled={saving}
+            onClick={onEdit}
+          >
+            Edit
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          variant="outline"
+          className="flex-1"
+          disabled={saving}
+          onClick={onClear}
+        >
+          Clear
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function PartialForm({
+  draftAdults,
+  draftKids,
+  maxAdults,
+  maxKids,
+  expected,
+  draftTotal,
+  canSubmit,
+  saving,
+  onAdultsChange,
+  onKidsChange,
+  onSubmit,
+  onCancel,
+}: {
+  draftAdults: number;
+  draftKids: number;
+  maxAdults: number;
+  maxKids: number;
+  expected: number;
+  draftTotal: number;
+  canSubmit: boolean;
+  saving: boolean;
+  onAdultsChange: (n: number) => void;
+  onKidsChange: (n: number) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-lg border p-3">
+      <p className="text-sm font-medium">Partial check-in</p>
+      <CountStepper
+        label="Adults (incl. registrant)"
+        value={draftAdults}
+        min={0}
+        max={maxAdults}
+        onChange={onAdultsChange}
+      />
+      {maxKids > 0 ? (
+        <CountStepper
+          label="Kids"
+          value={draftKids}
+          min={0}
+          max={maxKids}
+          onChange={onKidsChange}
+        />
+      ) : null}
+      <p className="text-sm text-muted-foreground tabular-nums">
+        Total: {draftTotal} of {expected}
+      </p>
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="flex-1"
+          onClick={onCancel}
+        >
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          variant="default"
+          className="flex-1"
+          disabled={!canSubmit}
+          onClick={onSubmit}
+        >
+          {saving ? "Saving…" : "Submit"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function CountStepper({
   label,
   value,
+  min,
   max,
-  disabled,
-  onDecrement,
-  onIncrement,
+  onChange,
 }: {
   label: string;
   value: number;
+  min: number;
   max: number;
-  disabled: boolean;
-  onDecrement: () => void;
-  onIncrement: () => void;
+  onChange: (n: number) => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
-      <span className="text-sm font-medium">{label}</span>
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-sm">{label}</span>
       <div className="flex items-center gap-2">
         <Button
           type="button"
           variant="outline"
           size="icon"
-          className="h-10 w-10 shrink-0"
-          disabled={disabled || value <= 0}
-          onClick={onDecrement}
+          className="h-9 w-9 shrink-0"
+          disabled={value <= min}
+          onClick={() => onChange(value - 1)}
           aria-label={`Decrease ${label}`}
         >
           <Minus className="size-4" />
         </Button>
-        <span className="w-6 text-center text-base font-semibold tabular-nums">{value}</span>
+        <span className="w-8 text-center text-sm font-semibold tabular-nums">{value}</span>
         <Button
           type="button"
           variant="outline"
           size="icon"
-          className="h-10 w-10 shrink-0"
-          disabled={disabled || value >= max}
-          onClick={onIncrement}
+          className="h-9 w-9 shrink-0"
+          disabled={value >= max}
+          onClick={() => onChange(value + 1)}
           aria-label={`Increase ${label}`}
         >
           <Plus className="size-4" />

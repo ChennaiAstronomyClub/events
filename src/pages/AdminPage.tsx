@@ -32,8 +32,8 @@ export function AdminPage() {
               Attendance Check-in
             </CardTitle>
             <CardDescription>
-              Mark registrants and +1s at the door. Mobile-friendly roster with live
-              counts synced to Google Sheets.
+              Tap All to check in the full party, or Partial to enter adult and kid
+              counts. Syncs to Google Sheets.
             </CardDescription>
           </CardHeader>
           <CardContent>

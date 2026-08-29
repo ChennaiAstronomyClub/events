@@ -14,14 +14,14 @@ import {
   normalizePaymentStatus,
 } from "./utils.js";
 
-export const ATTENDANCE_COLUMNS = [
+const ATTENDANCE_COLUMNS = [
   "AttendanceRegistrant",
   "AttendanceAdults",
   "AttendanceKids",
   "AttendanceUpdatedAt",
 ] as const;
 
-export interface AttendanceRecord {
+interface AttendanceRecord {
   sheetRow: number;
   name: string;
   email: string;
@@ -35,14 +35,14 @@ export interface AttendanceRecord {
   attendanceUpdatedAt: string | null;
 }
 
-export interface AttendanceListResult {
+interface AttendanceListResult {
   success: true;
   formId: string;
   sheetTab: string;
   registrations: AttendanceRecord[];
 }
 
-export interface AttendanceUpdateInput {
+interface AttendanceUpdateInput {
   formId: string;
   sheetRow: number;
   email: string;
@@ -57,10 +57,26 @@ function parseNonNegativeInt(value: unknown): number {
   return Math.floor(n);
 }
 
+/** Sheets API omits trailing empty cells; pad so column indices stay aligned. */
+function padRow(row: unknown[], headerCount: number): unknown[] {
+  if (row.length >= headerCount) return row;
+  return [...row, ...Array(headerCount - row.length).fill("")];
+}
+
 function cellString(headers: string[], row: unknown[], name: string): string {
   const col = findHeaderIndex0(headers, name);
   if (col === -1) return "";
   return String(row[col] ?? "").trim();
+}
+
+const NAME_COLUMN_CANDIDATES = ["name", "Full Name", "fullName"];
+
+function resolveRegistrantName(headers: string[], row: unknown[]): string {
+  for (const column of NAME_COLUMN_CANDIDATES) {
+    const value = cellString(headers, row, column);
+    if (value) return value;
+  }
+  return cellString(headers, row, "username");
 }
 
 function isConfirmedRegistrationRow(
@@ -99,7 +115,7 @@ function rowToAttendanceRecord(headers: string[], rowValues: unknown[], sheetRow
 
   return {
     sheetRow,
-    name: cellString(headers, rowValues, "name"),
+    name: resolveRegistrantName(headers, rowValues),
     email: cellString(headers, rowValues, "email"),
     phone: cellString(headers, rowValues, "phone"),
     memberType: cellString(headers, rowValues, "memberType"),
@@ -114,9 +130,10 @@ function rowToAttendanceRecord(headers: string[], rowValues: unknown[], sheetRow
 
 function buildRoster(data: SheetData, formId: string): AttendanceRecord[] {
   const records: AttendanceRecord[] = [];
+  const headerCount = data.headers.length;
 
   for (let i = 0; i < data.rows.length; i++) {
-    const rowValues = data.rows[i];
+    const rowValues = padRow(data.rows[i], headerCount);
     const sheetRow = i + 2;
     if (!isConfirmedRegistrationRow(data.headers, rowValues, formId)) continue;
     records.push(rowToAttendanceRecord(data.headers, rowValues, sheetRow));
@@ -139,8 +156,8 @@ export async function listAttendance(formId: string): Promise<AttendanceListResu
 
   return withSheetTabLock(getSpreadsheetId(), sheetTab, async () => {
     const repo = createRepository(sheetTab);
-    const data = await repo.readSheetData();
-    await repo.ensureColumnMap([...ATTENDANCE_COLUMNS], data);
+    const initial = await repo.readSheetData();
+    const { data } = await repo.ensureColumnMap([...ATTENDANCE_COLUMNS], initial);
 
     return {
       success: true as const,
@@ -175,7 +192,7 @@ export async function updateAttendance(
       return { success: false, error: "Registration not found" };
     }
 
-    const rowValues = data.rows[rowIndex];
+    const rowValues = padRow(data.rows[rowIndex], data.headers.length);
     if (!isConfirmedRegistrationRow(data.headers, rowValues, trimmedFormId)) {
       return { success: false, error: "Registration not found" };
     }

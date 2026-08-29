@@ -14,7 +14,7 @@ export interface AttendanceRecord {
   attendanceUpdatedAt: string | null;
 }
 
-export interface AttendanceListResponse {
+interface AttendanceListResponse {
   success: boolean;
   formId?: string;
   sheetTab?: string;
@@ -23,7 +23,7 @@ export interface AttendanceListResponse {
   message?: string;
 }
 
-export interface AttendanceUpdateResponse {
+interface AttendanceUpdateResponse {
   success: boolean;
   record?: {
     sheetRow: number;
@@ -95,4 +95,113 @@ export function presentHeadcount(record: AttendanceRecord): number {
 /** Whether any attendance has been recorded for this registration. */
 export function isAnyonePresent(record: AttendanceRecord): boolean {
   return presentHeadcount(record) > 0;
+}
+
+/** Best label for a roster row when sheet name is missing. */
+export function displayName(record: AttendanceRecord): string {
+  const name = record.name.trim();
+  if (name) return name;
+  const email = record.email.trim();
+  if (email) {
+    const local = email.split("@")[0]?.trim();
+    if (local) return local;
+  }
+  const phone = record.phone.trim();
+  if (phone) return phone;
+  return "—";
+}
+
+export type AttendancePatch = {
+  registrantPresent: boolean;
+  adultsPresent: number;
+  kidsPresent: number;
+};
+
+export function clearPatch(): AttendancePatch {
+  return { registrantPresent: false, adultsPresent: 0, kidsPresent: 0 };
+}
+
+export function fullPartyPatch(record: AttendanceRecord): AttendancePatch {
+  return {
+    registrantPresent: true,
+    adultsPresent: record.adultParticipants,
+    kidsPresent: record.kidParticipants,
+  };
+}
+
+export function partialPatch(
+  adultsTotal: number,
+  kidsTotal: number,
+  record: AttendanceRecord
+): AttendancePatch {
+  const maxAdults = 1 + record.adultParticipants;
+  const clampedAdults = Math.max(0, Math.min(adultsTotal, maxAdults));
+  const clampedKids = Math.max(0, Math.min(kidsTotal, record.kidParticipants));
+  return {
+    registrantPresent: clampedAdults >= 1,
+    adultsPresent: Math.max(0, clampedAdults - 1),
+    kidsPresent: clampedKids,
+  };
+}
+
+/** Adults who arrived, including the named registrant. */
+export function recordToAdultsTotal(record: AttendanceRecord): number {
+  return (record.registrantPresent ? 1 : 0) + record.adultsPresent;
+}
+
+export function recordToKidsTotal(record: AttendanceRecord): number {
+  return record.kidsPresent;
+}
+
+export function maxAdultsTotal(record: AttendanceRecord): number {
+  return 1 + record.adultParticipants;
+}
+
+/** Human-readable adult/kid counts for who actually arrived. */
+export function formatArrivedBreakdown(record: AttendanceRecord): string | null {
+  const parts: string[] = [];
+  const adultsArrived = (record.registrantPresent ? 1 : 0) + record.adultsPresent;
+  const adultsExpected = 1 + record.adultParticipants;
+
+  if (adultsExpected > 0 && adultsArrived > 0) {
+    parts.push(`${adultsArrived} adult${adultsArrived !== 1 ? "s" : ""}`);
+  }
+  if (record.kidParticipants > 0 || record.kidsPresent > 0) {
+    parts.push(`${record.kidsPresent} kid${record.kidsPresent !== 1 ? "s" : ""}`);
+  }
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+/** Expected guest hint for card header, e.g. "2 adults, 1 kid". */
+export function formatExpectedGuestHint(record: AttendanceRecord): string | null {
+  const parts: string[] = [];
+  const adultsExpected = 1 + record.adultParticipants;
+  if (adultsExpected > 1) {
+    parts.push(`${adultsExpected} adult${adultsExpected !== 1 ? "s" : ""}`);
+  }
+  if (record.kidParticipants > 0) {
+    parts.push(
+      `${record.kidParticipants} kid${record.kidParticipants !== 1 ? "s" : ""}`
+    );
+  }
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+export function arrivedAdultsCount(records: AttendanceRecord[]): number {
+  return records.reduce(
+    (sum, r) => sum + (r.registrantPresent ? 1 : 0) + r.adultsPresent,
+    0
+  );
+}
+
+export function arrivedKidsCount(records: AttendanceRecord[]): number {
+  return records.reduce((sum, r) => sum + r.kidsPresent, 0);
+}
+
+export function expectedAdultsCount(records: AttendanceRecord[]): number {
+  return records.reduce((sum, r) => sum + 1 + r.adultParticipants, 0);
+}
+
+export function expectedKidsCount(records: AttendanceRecord[]): number {
+  return records.reduce((sum, r) => sum + r.kidParticipants, 0);
 }
