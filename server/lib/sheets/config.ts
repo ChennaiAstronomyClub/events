@@ -17,6 +17,7 @@ export const GUEST_FORM_SHEET_TABS: Record<string, string> = {
 
 /** formId → sheetTab for all forms (keep in sync with src/config/forms.ts). */
 export const FORM_ID_SHEET_TABS: Record<string, string> = {
+  "star-party-september-2026": "September 12 Entries",
   "perseids-2026": "Perseids Entries",
   "city-meetup-august-30": "August 30 Entries",
   "city-meetup-august-2": "August 2 Entries",
@@ -116,6 +117,7 @@ export function isWhitelistUnpaidForm(formId: string): boolean {
  * in src/config/forms.ts. Never trust the client-supplied requiresPayment flag.
  */
 const FORM_REQUIRES_PAYMENT: Record<string, boolean> = {
+  "star-party-september-2026": false,
   "perseids-2026": false,
   "city-meetup-august-30": true,
   "city-meetup-august-2": true,
