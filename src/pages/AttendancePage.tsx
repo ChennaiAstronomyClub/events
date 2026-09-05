@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { AdminGate } from "@/components/admin/AdminGate";
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import {
   fetchAttendanceList,
+  syncAttendanceList,
   updateAttendanceRecord,
   displayName,
   expectedHeadcount,
@@ -35,6 +36,27 @@ import {
 import { cn } from "@/lib/utils";
 
 type AttendanceFilter = "all" | "here" | "not-here";
+
+const SYNC_POLL_MS = 10_000;
+const SHEETS_FALLBACK_POLL_MS = 15_000;
+
+function mergeRemoteRecords(
+  prev: AttendanceRecord[],
+  incoming: AttendanceRecord[],
+  savingRows: Set<number>
+): AttendanceRecord[] {
+  const prevByRow = new Map(prev.map((record) => [record.sheetRow, record]));
+  const incomingRows = new Set(incoming.map((record) => record.sheetRow));
+  const merged = incoming.map((record) =>
+    savingRows.has(record.sheetRow) ? (prevByRow.get(record.sheetRow) ?? record) : record
+  );
+  for (const record of prev) {
+    if (savingRows.has(record.sheetRow) && !incomingRows.has(record.sheetRow)) {
+      merged.push(record);
+    }
+  }
+  return merged;
+}
 
 export function AttendancePage() {
   return (
@@ -59,6 +81,9 @@ function AttendanceCheckIn() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<AttendanceFilter>("not-here");
   const [savingRows, setSavingRows] = useState<Set<number>>(new Set());
+  const versionRef = useRef(0);
+  const savingRowsRef = useRef(savingRows);
+  savingRowsRef.current = savingRows;
 
   const selectedForm = getFormConfig(formId);
 
@@ -70,12 +95,15 @@ function AttendanceCheckIn() {
       if (!data.success || !data.registrations) {
         setError(data.error ?? data.message ?? "Failed to load roster");
         setRecords([]);
+        versionRef.current = 0;
         return;
       }
       setRecords(data.registrations);
+      versionRef.current = typeof data.version === "number" ? data.version : 0;
     } catch {
       setError("Network error");
       setRecords([]);
+      versionRef.current = 0;
     } finally {
       setLoading(false);
     }
@@ -85,6 +113,76 @@ function AttendanceCheckIn() {
     if (!formId) return;
     void loadRoster(formId);
   }, [formId, loadRoster]);
+
+  useEffect(() => {
+    if (!formId || loading) return;
+
+    let cancelled = false;
+    let timer: number | undefined;
+    let useSheetsFallback = false;
+
+    function applyRegistrations(incoming: AttendanceRecord[], version?: number) {
+      setRecords((prev) => mergeRemoteRecords(prev, incoming, savingRowsRef.current));
+      if (typeof version === "number") versionRef.current = version;
+    }
+
+    async function tick() {
+      if (cancelled || document.visibilityState !== "visible") return;
+      try {
+        if (useSheetsFallback) {
+          const data = await fetchAttendanceList(formId);
+          if (cancelled || !data.success || !data.registrations) return;
+          applyRegistrations(data.registrations, data.version);
+          return;
+        }
+
+        const data = await syncAttendanceList(formId, versionRef.current);
+        if (cancelled) return;
+        if (data.redisUnavailable) {
+          useSheetsFallback = true;
+          return;
+        }
+        if (data.unchanged) {
+          if (typeof data.version === "number") versionRef.current = data.version;
+          return;
+        }
+        if (data.success && data.registrations) {
+          applyRegistrations(data.registrations, data.version);
+        }
+      } catch {
+        // Background sync should not surface as a page error.
+      }
+    }
+
+    function schedule() {
+      window.clearTimeout(timer);
+      const delay = useSheetsFallback ? SHEETS_FALLBACK_POLL_MS : SYNC_POLL_MS;
+      timer = window.setTimeout(() => {
+        void tick().then(() => {
+          if (!cancelled) schedule();
+        });
+      }, delay);
+    }
+
+    function onVisibility() {
+      if (document.visibilityState === "visible") {
+        void tick().then(() => {
+          if (!cancelled) schedule();
+        });
+      } else {
+        window.clearTimeout(timer);
+      }
+    }
+
+    document.addEventListener("visibilitychange", onVisibility);
+    if (document.visibilityState === "visible") schedule();
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [formId, loading]);
 
   function handleFormChange(nextFormId: string) {
     setFormId(nextFormId);
@@ -151,6 +249,9 @@ function AttendanceCheckIn() {
                 : r
             )
           );
+        }
+        if (typeof result.version === "number") {
+          versionRef.current = result.version;
         }
         setError(null);
       } catch {

@@ -4,14 +4,14 @@ import {
   verifyDiscourseAdmin,
 } from "../server/lib/discourse-admin.js";
 import { isSheetsApiConfigured } from "../server/lib/sheets/client.js";
-import { listAttendance, updateAttendance } from "../server/lib/sheets/attendance.js";
+import { listAttendance, syncAttendance, updateAttendance } from "../server/lib/sheets/attendance.js";
 import { mapSheetsError } from "../server/lib/sheets/errors.js";
 import { captureServerException } from "../server/lib/sentry.js";
 
 /**
  * POST /api/attendance
  * Headers: User-Api-Key: <discourse user api key>
- * Body: { action: "list" | "update", ... }
+ * Body: { action: "list" | "update" | "sync", ... }
  *
  * Discourse-admin-only check-in roster and attendance updates.
  */
@@ -45,6 +45,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ success: false, error: "Missing formId" });
       }
       const result = await listAttendance(formId);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      return res.status(200).json(result);
+    }
+
+    if (action === "sync") {
+      const formId = typeof body.formId === "string" ? body.formId.trim() : "";
+      if (!formId) {
+        return res.status(400).json({ success: false, error: "Missing formId" });
+      }
+      const sinceVersion = Number(body.sinceVersion ?? 0);
+      const result = await syncAttendance(
+        formId,
+        Number.isFinite(sinceVersion) ? sinceVersion : 0
+      );
       if (!result.success) {
         return res.status(400).json(result);
       }

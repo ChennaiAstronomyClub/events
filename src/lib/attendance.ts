@@ -9,6 +9,10 @@ export interface AttendanceRecord {
   adultParticipants: number;
   kidParticipants: number;
   registrantPresent: boolean;
+  /**
+   * Additional adults present (excludes the named registrant).
+   * The sheet column AttendanceAdults stores the total including the registrant.
+   */
   adultsPresent: number;
   kidsPresent: number;
   attendanceUpdatedAt: string | null;
@@ -19,6 +23,9 @@ interface AttendanceListResponse {
   formId?: string;
   sheetTab?: string;
   registrations?: AttendanceRecord[];
+  version?: number;
+  unchanged?: boolean;
+  redisUnavailable?: boolean;
   error?: string;
   message?: string;
 }
@@ -33,6 +40,7 @@ interface AttendanceUpdateResponse {
     kidsPresent: number;
     attendanceUpdatedAt: string;
   };
+  version?: number;
   error?: string;
   message?: string;
 }
@@ -51,6 +59,18 @@ export async function fetchAttendanceList(formId: string): Promise<AttendanceLis
     method: "POST",
     headers: attendanceHeaders(),
     body: JSON.stringify({ action: "list", formId }),
+  });
+  return res.json() as Promise<AttendanceListResponse>;
+}
+
+export async function syncAttendanceList(
+  formId: string,
+  sinceVersion: number
+): Promise<AttendanceListResponse> {
+  const res = await fetch("/api/attendance", {
+    method: "POST",
+    headers: attendanceHeaders(),
+    body: JSON.stringify({ action: "sync", formId, sinceVersion }),
   });
   return res.json() as Promise<AttendanceListResponse>;
 }

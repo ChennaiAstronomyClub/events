@@ -18,6 +18,10 @@ export function getRedisClient(): Redis | null {
   }
 }
 
+export function isRedisConfigured(): boolean {
+  return getRedisClient() !== null;
+}
+
 export async function redisGet<T>(key: string): Promise<T | null> {
   const redis = getRedisClient();
   if (!redis) return null;
@@ -67,5 +71,54 @@ export async function redisSetNx(
   } catch (err) {
     console.warn("[redis] SETNX failed:", key, err);
     return true; // on error → proceed without lock
+  }
+}
+
+export async function redisHSet(
+  key: string,
+  fields: Record<string, unknown>
+): Promise<void> {
+  const redis = getRedisClient();
+  if (!redis) return;
+  if (Object.keys(fields).length === 0) return;
+  try {
+    await redis.hset(key, fields);
+  } catch (err) {
+    console.warn("[redis] HSET failed:", key, err);
+  }
+}
+
+export async function redisHGetAll<T extends Record<string, unknown>>(
+  key: string
+): Promise<T | null> {
+  const redis = getRedisClient();
+  if (!redis) return null;
+  try {
+    const value = await redis.hgetall<T>(key);
+    return value ?? null;
+  } catch (err) {
+    console.warn("[redis] HGETALL failed:", key, err);
+    return null;
+  }
+}
+
+export async function redisIncr(key: string): Promise<number | null> {
+  const redis = getRedisClient();
+  if (!redis) return null;
+  try {
+    return await redis.incr(key);
+  } catch (err) {
+    console.warn("[redis] INCR failed:", key, err);
+    return null;
+  }
+}
+
+export async function redisExpire(key: string, ttlSeconds: number): Promise<void> {
+  const redis = getRedisClient();
+  if (!redis) return;
+  try {
+    await redis.expire(key, ttlSeconds);
+  } catch (err) {
+    console.warn("[redis] EXPIRE failed:", key, err);
   }
 }
