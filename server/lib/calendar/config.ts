@@ -1,4 +1,4 @@
-const DEFAULT_FROM = "Chennai Astronomy Club <no-reply@chennaiastronomyclub.org>";
+const DEFAULT_FROM = "Chennai Astronomy Club <invites@chennaiastronomyclub.org>";
 const DEFAULT_REPLY_TO = "hello@chennaiastronomyclub.org";
 
 export function isCalendarEmailConfigured(): boolean {

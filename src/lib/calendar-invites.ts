@@ -75,10 +75,18 @@ function failureFromStatus(
   };
 }
 
+export interface CalendarInviteCopy {
+  subject?: string;
+  body?: string;
+  title?: string;
+  venue?: string;
+  url?: string;
+}
+
 async function sendInviteChunk(
   formId: string,
   emails: string[] | undefined,
-  copy?: { subject?: string; body?: string }
+  copy?: CalendarInviteCopy
 ): Promise<CalendarInviteSendResponse> {
   const headers = inviteHeaders();
   if (!headers) {
@@ -94,10 +102,16 @@ async function sendInviteChunk(
     emails?: string[];
     subject?: string;
     body?: string;
+    title?: string;
+    venue?: string;
+    url?: string;
   } = { formId };
   if (emails) payload.emails = emails;
   if (copy?.subject) payload.subject = copy.subject;
   if (copy?.body) payload.body = copy.body;
+  if (copy?.title) payload.title = copy.title;
+  if (copy?.venue !== undefined) payload.venue = copy.venue;
+  if (copy?.url !== undefined) payload.url = copy.url;
 
   const controller = new AbortController();
   const timeout = setTimeout(
@@ -148,7 +162,7 @@ async function sendInviteChunk(
 export async function sendCalendarInvites(
   formId: string,
   emails?: string[],
-  copy?: { subject?: string; body?: string },
+  copy?: CalendarInviteCopy,
   onProgress?: (progress: CalendarInviteProgress) => void
 ): Promise<CalendarInviteSendResponse> {
   const targets = emails ?? [];

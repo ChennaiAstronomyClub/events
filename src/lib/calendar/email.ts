@@ -1,4 +1,5 @@
 import { formatCalendarWhen, type CalendarEvent } from "./event.js";
+import { googleCalendarTemplateUrl } from "./google.js";
 
 export const INVITE_SUBJECT_MAX = 200;
 export const INVITE_BODY_MAX = 20000;
@@ -18,6 +19,7 @@ export function defaultInviteBody(event: CalendarEvent): string {
   lines.push(
     "This email includes a calendar invite. Open it to add the event to Google Calendar, Outlook, or Apple Calendar."
   );
+  lines.push(googleCalendarLinkText(event));
   lines.push("");
   lines.push("— Chennai Astronomy Club");
   return lines.join("\n");
@@ -37,8 +39,32 @@ export function defaultInviteHtml(event: CalendarEvent): string {
   parts.push(
     "<p>This email includes a calendar invite. Open it to add the event to Google Calendar, Outlook, or Apple Calendar.</p>"
   );
+  parts.push(googleCalendarLinkHtml(event));
   parts.push("<p>— Chennai Astronomy Club</p>");
   return parts.join("\n");
+}
+
+export function googleCalendarLinkText(event: CalendarEvent): string {
+  return `Add to Google Calendar: ${googleCalendarTemplateUrl(event)}`;
+}
+
+export function googleCalendarLinkHtml(event: CalendarEvent): string {
+  return `<p><a href="${escapeHtml(googleCalendarTemplateUrl(event))}">Add to Google Calendar</a></p>`;
+}
+
+/** Append a Google Calendar template link when the copy does not already include one. */
+export function ensureGoogleCalendarLink(
+  event: CalendarEvent,
+  html: string,
+  text: string
+): { html: string; text: string } {
+  const nextHtml = /calendar\.google\.com/i.test(html)
+    ? html
+    : `${html.trim()}\n${googleCalendarLinkHtml(event)}`;
+  const nextText = /calendar\.google\.com/i.test(text)
+    ? text
+    : `${text.trim()}\n\n${googleCalendarLinkText(event)}`;
+  return { html: nextHtml, text: nextText };
 }
 
 export function escapeHtml(value: string): string {

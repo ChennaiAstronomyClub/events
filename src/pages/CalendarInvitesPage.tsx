@@ -7,7 +7,13 @@ import {
   getFormConfig,
   getListedFormConfigs,
 } from "@/config/forms";
-import { getCalendarEvent } from "@/lib/calendar/event";
+import {
+  applyCalendarEventOverrides,
+  CALENDAR_TITLE_MAX,
+  CALENDAR_URL_MAX,
+  CALENDAR_VENUE_MAX,
+  getCalendarEvent,
+} from "@/lib/calendar/event";
 import {
   defaultInviteHtml,
   defaultInviteSubject,
@@ -60,6 +66,15 @@ function CalendarInvitesPanel() {
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
+  const [eventTitle, setEventTitle] = useState(
+    () => getCalendarEvent(initialFormId)?.title ?? ""
+  );
+  const [eventVenue, setEventVenue] = useState(
+    () => getCalendarEvent(initialFormId)?.venue ?? ""
+  );
+  const [eventUrl, setEventUrl] = useState(
+    () => getCalendarEvent(initialFormId)?.url ?? ""
+  );
   const [subject, setSubject] = useState(() => {
     const event = getCalendarEvent(initialFormId);
     return event ? defaultInviteSubject(event) : "";
@@ -105,8 +120,17 @@ function CalendarInvitesPanel() {
 
   function applyDefaultCopy(nextFormId: string) {
     const event = getCalendarEvent(nextFormId);
-    setSubject(event ? defaultInviteSubject(event) : "");
-    setBody(event ? defaultInviteHtml(event) : "");
+    const title = event?.title ?? "";
+    const venue = event?.venue ?? "";
+    const url = event?.url ?? "";
+    setEventTitle(title);
+    setEventVenue(venue);
+    setEventUrl(url);
+    const forCopy = event
+      ? applyCalendarEventOverrides(event, { title, venue, url })
+      : null;
+    setSubject(forCopy ? defaultInviteSubject(forCopy) : "");
+    setBody(forCopy ? defaultInviteHtml(forCopy) : "");
     setEditorKey((key) => key + 1);
   }
 
@@ -167,7 +191,7 @@ function CalendarInvitesPanel() {
   }
 
   const selectedCount = selectedEmails.size;
-  const copyReady = Boolean(subject.trim() && htmlHasText(body));
+  const copyReady = Boolean(subject.trim() && htmlHasText(body) && eventTitle.trim());
 
   function resetEmailCopy() {
     applyDefaultCopy(formId);
@@ -185,6 +209,9 @@ function CalendarInvitesPanel() {
         {
           subject: subject.trim(),
           body: body.trim(),
+          title: eventTitle.trim(),
+          venue: eventVenue.trim(),
+          url: eventUrl.trim(),
         },
         ({ processed, total }) => {
           if (total > 0) {
@@ -330,11 +357,54 @@ function CalendarInvitesPanel() {
       {calendarEvent ? (
         <div className="space-y-3 rounded-lg border p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">Email</h2>
+            <h2 className="text-sm font-semibold">Calendar event</h2>
             <Button type="button" variant="ghost" size="sm" onClick={resetEmailCopy}>
               Reset to default
             </Button>
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="invite-title">Title</Label>
+            <Input
+              id="invite-title"
+              value={eventTitle}
+              maxLength={CALENDAR_TITLE_MAX}
+              onChange={(e) => setEventTitle(e.target.value)}
+              placeholder="Event title"
+              disabled={sending}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="invite-venue">Venue</Label>
+            <Input
+              id="invite-venue"
+              value={eventVenue}
+              maxLength={CALENDAR_VENUE_MAX}
+              onChange={(e) => setEventVenue(e.target.value)}
+              placeholder="Location shown on the calendar invite"
+              disabled={sending}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="invite-url">Event URL</Label>
+            <Input
+              id="invite-url"
+              value={eventUrl}
+              maxLength={CALENDAR_URL_MAX}
+              onChange={(e) => setEventUrl(e.target.value)}
+              placeholder="https://"
+              disabled={sending}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            These fields go into the attached calendar invite. Start and end times
+            come from the event and cannot be changed here.
+          </p>
+        </div>
+      ) : null}
+
+      {calendarEvent ? (
+        <div className="space-y-3 rounded-lg border p-4">
+          <h2 className="text-sm font-semibold">Email</h2>
           <div className="space-y-2">
             <Label htmlFor="invite-subject">Subject</Label>
             <Input
@@ -362,7 +432,8 @@ function CalendarInvitesPanel() {
               />
             </Suspense>
             <p className="text-xs text-muted-foreground">
-              Format text and add links. The calendar invite (.ics) is still attached.
+              Format text and add links. The calendar file is attached. An Add to
+              Google Calendar link is added if the body does not already have one.
             </p>
           </div>
         </div>

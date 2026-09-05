@@ -14,6 +14,53 @@ export interface CalendarEvent {
   url?: string;
 }
 
+export interface CalendarEventOverrides {
+  title?: string;
+  venue?: string;
+  url?: string;
+}
+
+export const CALENDAR_TITLE_MAX = 200;
+export const CALENDAR_VENUE_MAX = 300;
+export const CALENDAR_URL_MAX = 500;
+
+export function sanitizeCalendarTitle(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim().slice(0, CALENDAR_TITLE_MAX);
+  return trimmed || undefined;
+}
+
+/** Trim and cap an optional ICS override. Empty string means omit the property. */
+export function sanitizeCalendarOverride(
+  raw: unknown,
+  max: number
+): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  return raw.trim().slice(0, max);
+}
+
+export function applyCalendarEventOverrides(
+  event: CalendarEvent,
+  overrides?: CalendarEventOverrides
+): CalendarEvent {
+  if (!overrides) return event;
+  const next: CalendarEvent = { ...event };
+  if (overrides.title?.trim()) {
+    next.title = overrides.title.trim();
+  }
+  if (overrides.venue !== undefined) {
+    const venue = overrides.venue.trim();
+    if (venue) next.venue = venue;
+    else delete next.venue;
+  }
+  if (overrides.url !== undefined) {
+    const url = overrides.url.trim();
+    if (url) next.url = url;
+    else delete next.url;
+  }
+  return next;
+}
+
 export function getCalendarEvent(formId: string): CalendarEvent | null {
   const trimmed = formId.trim();
   const meta: EventCalendarMeta | undefined = EVENT_CALENDAR_META[trimmed];

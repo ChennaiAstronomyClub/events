@@ -7,7 +7,13 @@ import { isSheetsApiConfigured } from "../server/lib/sheets/client.js";
 import { listAttendance } from "../server/lib/sheets/attendance.js";
 import { mapSheetsError } from "../server/lib/sheets/errors.js";
 import { sendCalendarInvites } from "../server/lib/calendar/send.js";
-import { getCalendarEvent } from "../src/lib/calendar/event.js";
+import {
+  CALENDAR_URL_MAX,
+  CALENDAR_VENUE_MAX,
+  getCalendarEvent,
+  sanitizeCalendarOverride,
+  sanitizeCalendarTitle,
+} from "../src/lib/calendar/event.js";
 import { htmlHasText, sanitizeInviteSubject } from "../src/lib/calendar/email.js";
 import { isCalendarEmailConfigured } from "../server/lib/calendar/config.js";
 import { captureServerException } from "../server/lib/sentry.js";
@@ -17,7 +23,8 @@ export const config = { maxDuration: 60 };
 /**
  * POST /api/calendar-invites
  * Headers: User-Api-Key: <discourse user api key>
- * Body: { formId: string, emails?: string[], subject?: string, body?: string }
+ * Body: { formId: string, emails?: string[], subject?: string, body?: string,
+ *         title?: string, venue?: string, url?: string }
  *
  * Discourse-admin-only. Sends ICS calendar invites to confirmed registrants.
  * Omit `emails` to send to everyone on the roster; otherwise intersect with it.
@@ -79,6 +86,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
+  const titleOverride = sanitizeCalendarTitle(body.title);
+  if (typeof body.title === "string" && !titleOverride) {
+    return res.status(400).json({
+      success: false,
+      error: "invalid_title",
+      message: "Calendar title is required.",
+    });
+  }
+  const venueOverride = sanitizeCalendarOverride(body.venue, CALENDAR_VENUE_MAX);
+  const urlOverride = sanitizeCalendarOverride(body.url, CALENDAR_URL_MAX);
+
   try {
     const roster = await listAttendance(formId);
     if (!roster.success) {
@@ -120,6 +138,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const result = await sendCalendarInvites(formId, selected, {
       subject: typeof body.subject === "string" ? body.subject : undefined,
       body: typeof body.body === "string" ? body.body : undefined,
+      ...(titleOverride !== undefined ? { title: titleOverride } : {}),
+      ...(venueOverride !== undefined ? { venue: venueOverride } : {}),
+      ...(urlOverride !== undefined ? { url: urlOverride } : {}),
     });
     return res.status(200).json({ success: true, formId, ...result });
   } catch (err) {

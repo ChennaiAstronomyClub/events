@@ -1,8 +1,13 @@
-import { getCalendarEvent } from "../../../src/lib/calendar/event.js";
+import {
+  applyCalendarEventOverrides,
+  getCalendarEvent,
+  type CalendarEventOverrides,
+} from "../../../src/lib/calendar/event.js";
 import { buildCalendarIcs } from "../../../src/lib/calendar/ics.js";
 import {
   defaultInviteBody,
   defaultInviteSubject,
+  ensureGoogleCalendarLink,
   htmlToPlainText,
   inviteBodyToHtml,
   looksLikeHtml,
@@ -24,6 +29,9 @@ export interface SendCalendarInviteInput {
   attendeeName?: string;
   subject?: string;
   body?: string;
+  title?: string;
+  venue?: string;
+  url?: string;
 }
 
 export type SendCalendarInviteResult =
@@ -31,7 +39,7 @@ export type SendCalendarInviteResult =
   | { sent: false; skipped: string }
   | { sent: false; error: string };
 
-export interface InviteCopy {
+export interface InviteCopy extends CalendarEventOverrides {
   subject?: string;
   body?: string;
 }
@@ -87,7 +95,8 @@ async function sendResendEmail(options: {
         {
           filename: "invite.ics",
           content: Buffer.from(options.ics, "utf8").toString("base64"),
-          content_type: "text/calendar; charset=UTF-8; method=REQUEST",
+          content_type: "text/calendar; charset=UTF-8; method=PUBLISH",
+          content_disposition: "inline",
         },
       ],
       headers: {
@@ -118,8 +127,8 @@ export async function sendCalendarInviteIfConfigured(
     return { sent: false, skipped: "missing_email" };
   }
 
-  const event = getCalendarEvent(input.formId);
-  if (!event) {
+  const baseEvent = getCalendarEvent(input.formId);
+  if (!baseEvent) {
     return { sent: false, skipped: "no_calendar_event" };
   }
 
@@ -127,6 +136,12 @@ export async function sendCalendarInviteIfConfigured(
     console.warn("[calendar] RESEND_API_KEY is not set; skipping invite");
     return { sent: false, skipped: "not_configured" };
   }
+
+  const event = applyCalendarEventOverrides(baseEvent, {
+    title: input.title,
+    venue: input.venue,
+    url: input.url,
+  });
 
   const subject =
     sanitizeInviteSubject(input.subject) ?? defaultInviteSubject(event);
@@ -142,13 +157,15 @@ export async function sendCalendarInviteIfConfigured(
       : inviteBodyToHtml(rawBody)
     : inviteBodyToHtml(defaultInviteBody(event));
 
+  const withCalendarLink = ensureGoogleCalendarLink(event, html, text);
+
   const apiKey = getResendApiKey()!;
   const from = getCalendarFromEmail();
   const replyTo = getCalendarReplyTo();
   const organizer = parseFromAddress(from);
   const ics = buildCalendarIcs({
     event,
-    method: "REQUEST",
+    method: "PUBLISH",
     attendeeEmail: email,
     attendeeName: input.attendeeName,
     organizerEmail: organizer.email,
@@ -162,8 +179,8 @@ export async function sendCalendarInviteIfConfigured(
       to: email,
       replyTo,
       subject,
-      html,
-      text,
+      html: withCalendarLink.html,
+      text: withCalendarLink.text,
       ics,
     });
 
@@ -209,6 +226,9 @@ export async function sendCalendarInvites(
         attendeeName: recipient.name,
         subject: copy?.subject,
         body: copy?.body,
+        title: copy?.title,
+        venue: copy?.venue,
+        url: copy?.url,
       });
       if (outcome.sent) {
         result.sent += 1;

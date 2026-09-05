@@ -17,6 +17,8 @@ export interface BuildCalendarIcsOptions {
 
 const UID_HOST = "events.chennaiastronomyclub.org";
 const ICS_CRLF = "\r\n";
+const ICS_FOLD_OCTETS = 75;
+const utf8Encoder = new TextEncoder();
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -30,6 +32,10 @@ function formatUtcNowCompact(): string {
   );
 }
 
+function utf8ByteLength(value: string): number {
+  return utf8Encoder.encode(value).length;
+}
+
 function escapeIcsText(value: string): string {
   return value
     .replace(/\\/g, "\\\\")
@@ -38,14 +44,37 @@ function escapeIcsText(value: string): string {
     .replace(/,/g, "\\,");
 }
 
+/** Quote ICS parameter values that contain space, colon, semicolon, or comma. */
+function escapeIcsParam(value: string): string {
+  const cleaned = value.replace(/"/g, "");
+  if (/[\s;:,]/.test(cleaned)) {
+    return `"${cleaned}"`;
+  }
+  return cleaned;
+}
+
 function foldIcsLine(line: string): string {
-  const max = 75;
-  if (line.length <= max) return line;
-  const parts: string[] = [line.slice(0, max)];
-  let remaining = line.slice(max);
-  while (remaining.length > 0) {
-    parts.push(` ${remaining.slice(0, max - 1)}`);
-    remaining = remaining.slice(max - 1);
+  if (utf8ByteLength(line) <= ICS_FOLD_OCTETS) return line;
+
+  const parts: string[] = [];
+  let current = "";
+  let currentBytes = 0;
+  let first = true;
+
+  for (const char of line) {
+    const charBytes = utf8ByteLength(char);
+    const limit = first ? ICS_FOLD_OCTETS : ICS_FOLD_OCTETS - 1;
+    if (current.length > 0 && currentBytes + charBytes > limit) {
+      parts.push(first ? current : ` ${current}`);
+      first = false;
+      current = "";
+      currentBytes = 0;
+    }
+    current += char;
+    currentBytes += charBytes;
+  }
+  if (current) {
+    parts.push(first ? current : ` ${current}`);
   }
   return parts.join(ICS_CRLF);
 }
@@ -54,10 +83,14 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+function uidLocalPart(email: string): string {
+  return normalizeEmail(email).replace(/@/g, ".at.");
+}
+
 export function calendarEventUid(formId: string, attendeeEmail?: string): string {
   const id = formId.trim().toLowerCase();
   if (attendeeEmail?.trim()) {
-    return `${id}-${normalizeEmail(attendeeEmail)}@${UID_HOST}`;
+    return `${id}-${uidLocalPart(attendeeEmail)}@${UID_HOST}`;
   }
   return `${id}@${UID_HOST}`;
 }
@@ -85,6 +118,8 @@ export function buildCalendarIcs(options: BuildCalendarIcsOptions): string {
     `DTEND:${formatUtcCompact(event.endTime)}`,
     `SUMMARY:${escapeIcsText(event.title)}`,
     `DESCRIPTION:${escapeIcsText(calendarEventDescription(event))}`,
+    "STATUS:CONFIRMED",
+    "SEQUENCE:0",
   ];
 
   if (event.venue) {
@@ -94,15 +129,17 @@ export function buildCalendarIcs(options: BuildCalendarIcsOptions): string {
     lines.push(`URL:${event.url}`);
   }
   if (organizerEmail) {
-    const cn = organizerName ? `;CN=${escapeIcsText(organizerName)}` : "";
+    const cn = organizerName?.trim()
+      ? `;CN=${escapeIcsParam(organizerName.trim())}`
+      : "";
     lines.push(`ORGANIZER${cn}:mailto:${organizerEmail.trim()}`);
   }
   if (method === "REQUEST" && attendeeEmail) {
     const cn = attendeeName?.trim()
-      ? `;CN=${escapeIcsText(attendeeName.trim())}`
+      ? `;CN=${escapeIcsParam(attendeeName.trim())}`
       : "";
     lines.push(
-      `ATTENDEE${cn};RSVP=TRUE;PARTSTAT=NEEDS-ACTION:mailto:${normalizeEmail(attendeeEmail)}`
+      `ATTENDEE${cn};CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${normalizeEmail(attendeeEmail)}`
     );
   }
 
