@@ -16,6 +16,7 @@ import {
   type SheetData,
 } from "./logic.js";
 import { matchesRegistrationWhitelist } from "./whitelist.js";
+import { isIdentityBlacklisted } from "./blacklist.js";
 import { createRepository, type SheetRepository } from "./repository.js";
 import { getSpreadsheetId } from "./client.js";
 import { withSheetTabLock } from "./mutex.js";
@@ -139,6 +140,26 @@ function registrationFullResponse(): Record<string, unknown> {
     message:
       "Registrations are paused because the event is full. Please contact the organisers if you wish to register.",
   };
+}
+
+const BLACKLISTED_RESPONSE = {
+  success: false,
+  error: "blacklisted",
+  message:
+    "We can't complete this registration. Please email us using the contact page on our website.",
+} as const;
+
+async function denyIfBlacklisted(
+  user: RegistrationUser,
+  body: Record<string, unknown>
+): Promise<Record<string, unknown> | null> {
+  const listed = await isIdentityBlacklisted({
+    email: user.email,
+    username: user.username,
+    phone: phoneFromBody(body),
+  });
+  if (!listed) return null;
+  return { ...BLACKLISTED_RESPONSE };
 }
 
 /** Read sheet, expire stale holds in one batch, re-read if anything expired. */
@@ -302,7 +323,14 @@ async function updateSeatStatusForPayment(
   }
 }
 
-async function handleStatus(sheetTab: string): Promise<Record<string, unknown>> {
+async function handleStatus(
+  sheetTab: string,
+  user: RegistrationUser,
+  body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const blacklisted = await denyIfBlacklisted(user, body);
+  if (blacklisted) return blacklisted;
+
   const cached = await getStatusCache(sheetTab);
   if (cached) return cached;
 
@@ -343,6 +371,9 @@ async function handleReserve(
   user: RegistrationUser,
   body: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
+  const blacklisted = await denyIfBlacklisted(user, body);
+  if (blacklisted) return blacklisted;
+
   const windowDenied = denyNewRegistrationIfWindowClosed(body, user);
   if (windowDenied) return windowDenied;
 
@@ -570,6 +601,9 @@ async function handleSubmit(
   user: RegistrationUser,
   body: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
+  const blacklisted = await denyIfBlacklisted(user, body);
+  if (blacklisted) return blacklisted;
+
   const windowDenied = denyNewRegistrationIfWindowClosed(body, user);
   if (windowDenied) return windowDenied;
 
@@ -785,7 +819,7 @@ export async function dispatchRegistration(
 
   switch (action) {
     case "status":
-      return handleStatus(sheetTab);
+      return handleStatus(sheetTab, user, body);
     case "reserve":
       return handleReserve(sheetTab, user, body);
     case "releaseHold":

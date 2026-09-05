@@ -40,6 +40,7 @@ const ACTIONS_NEEDING_USER: RegistrationAction[] = [
   "releaseHold",
   "update",
   "reserve",
+  "status",
 ];
 
 const GUEST_ACTIONS: RegistrationAction[] = [
@@ -134,16 +135,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
     }
-  } else if (action === "status") {
-    user = { username: "", email: "", groups: [] };
-    memberType = "regular";
-    if (shouldVerifyDiscourseOnRegistration()) {
-      try {
-        await verifyDiscourseApiKeyCached(discourseUrl, userApiKey!);
-      } catch {
-        return res.status(403).json({ success: false, error: "Failed to verify user" });
-      }
-    }
   } else {
     const resolved = await resolveRegistrationUser(
       body,
@@ -165,13 +156,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       typeof body?.phone === "string" && body.phone.trim()
         ? body.phone.trim()
         : undefined;
+    const submitWithPhone =
+      phone && !(typeof submitBody.phone === "string" && submitBody.phone.trim())
+        ? { ...submitBody, phone }
+        : submitBody;
     const result = await dispatchRegistration({
       action,
       sheetTab,
       user: { username: user.username, email: user.email, memberType },
       body:
         action === "submit"
-          ? submitBody
+          ? submitWithPhone
           : action === "update"
             ? { updates: body?.updates, sheetTab, formId }
             : {
@@ -327,7 +322,10 @@ async function resolveGuestUser(
   }
 
   if (action === "status") {
-    return { user: { username: "", email: "", groups: [] } };
+    const guestUser = parseGuestUser(body);
+    const email =
+      guestUser?.email && isValidEmail(guestUser.email) ? guestUser.email : "";
+    return { user: { username: "", email, groups: [] } };
   }
 
   if (action === "reserve") {
@@ -594,25 +592,6 @@ async function handleWhitelistCheck(
   );
 
   res.status(200).json({ success: true, allowed });
-}
-
-async function verifyDiscourseApiKeyCached(
-  discourseUrl: string,
-  userApiKey: string
-): Promise<void> {
-  const cacheKey = discourseCacheKey("session", userApiKey);
-  const cached = await redisGet<string>(cacheKey);
-  if (cached) return;
-
-  const currentRes = await fetch(`${discourseUrl}/session/current.json`, {
-    headers: { "User-Api-Key": userApiKey, Accept: "application/json" },
-  });
-  if (!currentRes.ok) throw new Error("Forbidden");
-
-  const currentData = await currentRes.json();
-  if (!currentData?.current_user?.username) throw new Error("Missing username");
-
-  await redisSet(cacheKey, "1", DISCOURSE_CACHE_TTL_S);
 }
 
 interface ClientDiscourseHint {

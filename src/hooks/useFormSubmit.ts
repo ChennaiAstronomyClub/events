@@ -8,13 +8,14 @@ import {
   type GuestUser,
   type RegistrationCallOptions,
 } from "@/lib/google-sheets";
-import { registrationErrorMessage } from "@/lib/registration-errors";
+import { isBlacklistedError, registrationErrorMessage } from "@/lib/registration-errors";
 import type { DiscourseUser } from "@/types/discourse";
 
 interface SubmitState {
   isSubmitting: boolean;
   isSuccess: boolean;
   isDuplicate: boolean;
+  isBlacklisted: boolean;
   error: string | null;
 }
 
@@ -23,6 +24,7 @@ export function useFormSubmit() {
     isSubmitting: false,
     isSuccess: false,
     isDuplicate: false,
+    isBlacklisted: false,
     error: null,
   });
 
@@ -36,25 +38,47 @@ export function useFormSubmit() {
       holdToken?: string;
     }
   ) {
-    setState({ isSubmitting: true, isSuccess: false, isDuplicate: false, error: null });
+    setState({
+      isSubmitting: true,
+      isSuccess: false,
+      isDuplicate: false,
+      isBlacklisted: false,
+      error: null,
+    });
 
     try {
       const result = await submitToSheets(sheetTab, formData, options);
       if (result.success) {
-        setState({ isSubmitting: false, isSuccess: true, isDuplicate: false, error: null });
+        setState({
+          isSubmitting: false,
+          isSuccess: true,
+          isDuplicate: false,
+          isBlacklisted: false,
+          error: null,
+        });
       } else {
         const isDuplicate = result.error === "duplicate";
+        const isBlacklisted = isBlacklistedError(result.error);
         setState({
           isSubmitting: false,
           isSuccess: false,
           isDuplicate,
-          error: registrationErrorMessage(result.error, result.message),
+          isBlacklisted,
+          error: isBlacklisted
+            ? null
+            : registrationErrorMessage(result.error, result.message),
         });
       }
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Submission failed";
-      setState({ isSubmitting: false, isSuccess: false, isDuplicate: false, error: message });
+      setState({
+        isSubmitting: false,
+        isSuccess: false,
+        isDuplicate: false,
+        isBlacklisted: false,
+        error: message,
+      });
       return { success: false, error: message };
     }
   }

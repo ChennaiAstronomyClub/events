@@ -13,9 +13,11 @@ import {
   parseWhitelistInviteParams,
 } from "@/lib/whitelist-invite";
 import {
+  isBlacklistedError,
   isHoldExpiredError,
   isRetriableError,
   registrationErrorMessage,
+  CONTACT_PAGE_URL,
 } from "@/lib/registration-errors";
 import { storage } from "@/lib/storage";
 import { clearHoldToken, getHoldToken, setHoldToken } from "@/lib/guest-hold-token";
@@ -47,6 +49,7 @@ interface CapacityCheckState {
   sheetTab: string | null;
   status: CapacityCheckStatus;
   isFull: boolean;
+  isBlacklisted: boolean;
   message: string | null;
   holdExpiresAt: string | null;
   hasValidHold: boolean;
@@ -57,6 +60,7 @@ const EMPTY_CAPACITY_CHECK: CapacityCheckState = {
   sheetTab: null,
   status: "idle",
   isFull: false,
+  isBlacklisted: false,
   message: null,
   holdExpiresAt: null,
   hasValidHold: false,
@@ -68,7 +72,8 @@ export function FormPage() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { user, apiKey, refreshUser, login, isLoading: authLoading } = useAuth();
-  const { isSubmitting, isDuplicate, error, submit } = useFormSubmit();
+  const { isSubmitting, isDuplicate, isBlacklisted: submitBlacklisted, error, submit } =
+    useFormSubmit();
   const navigate = useNavigate();
 
   const config = formId ? getFormConfig(formId) : undefined;
@@ -91,9 +96,17 @@ export function FormPage() {
     const email = inviteIdentity.email?.trim();
     return email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
   });
+  const [guestPhone, setGuestPhone] = useState<string | null>(() => {
+    const phone = inviteIdentity.phone?.trim();
+    if (!phone) return null;
+    return phone.replace(/\D/g, "").length >= 10 ? phone : null;
+  });
   const [continuingAsGuest, setContinuingAsGuest] = useState(() => isWhitelistInviteGuest);
   const [emailGateDraft, setEmailGateDraft] = useState(
     () => inviteIdentity.email?.trim() ?? ""
+  );
+  const [phoneGateDraft, setPhoneGateDraft] = useState(
+    () => inviteIdentity.phone?.trim() ?? ""
   );
   const [emailGateError, setEmailGateError] = useState<string | null>(null);
 
@@ -192,7 +205,7 @@ export function FormPage() {
 
   const regStatus = config ? getRegistrationStatus(config) : "open";
   const identityPhone =
-    user?.user_fields?.[PHONE_FIELD_ID] ?? inviteIdentity.phone ?? null;
+    user?.user_fields?.[PHONE_FIELD_ID] ?? guestPhone ?? inviteIdentity.phone ?? null;
   const identityEmail = user?.email ?? guestEmail ?? inviteIdentity.email ?? null;
   const needsWhitelistCheck = Boolean(
     config?.allowsRegistrationWhitelist &&
@@ -214,7 +227,11 @@ export function FormPage() {
   const registrationAllowed =
     regStatus === "open" ||
     Boolean(isWhitelisted && config && !isEventOver(config));
-  const hasRegistrationIdentity = Boolean(user || (isGuestMode && guestEmail));
+  const requiresPayment = Boolean(config?.requiresPayment);
+  const guestIdentityReady = Boolean(
+    guestEmail && (!requiresPayment || guestPhone)
+  );
+  const hasRegistrationIdentity = Boolean(user || (isGuestMode && guestIdentityReady));
   const shouldCheckCapacity = Boolean(
     config &&
       !config.skipCapacityCheck &&
@@ -227,7 +244,7 @@ export function FormPage() {
     shouldCheckCapacity && capacityCheck.status === "checking";
   const capacityCheckFailed =
     shouldCheckCapacity && capacityCheck.status === "error";
-  const requiresPayment = Boolean(config?.requiresPayment);
+  const isRegistrationBlocked = capacityCheck.isBlacklisted || submitBlacklisted;
 
   // Show verifiedSuccess info on the "already registered" card for:
   //  - paid events → always (all users need the WhatsApp link to join)
@@ -324,6 +341,7 @@ export function FormPage() {
       ...prev,
       status: "checking",
       sheetTab: null,
+      isBlacklisted: false,
       errorMessage: null,
     }));
 
@@ -332,6 +350,7 @@ export function FormPage() {
         sheetTab,
         status: "error",
         isFull: false,
+        isBlacklisted: false,
         message: null,
         holdExpiresAt: null,
         hasValidHold: false,
@@ -354,6 +373,20 @@ export function FormPage() {
         return;
       }
 
+      if (isBlacklistedError(result.error)) {
+        setCapacityCheck({
+          sheetTab,
+          status: "ready",
+          isFull: false,
+          isBlacklisted: true,
+          message: registrationErrorMessage(result.error, result.message),
+          holdExpiresAt: null,
+          hasValidHold: false,
+          errorMessage: null,
+        });
+        return;
+      }
+
       // Reserve success sets isFull when the event hits capacity (activeCount >= limit).
       // That is informational for others — a user with expiresAt must not be turned away.
       // Whitelisted identities may register even when the event reports full.
@@ -367,6 +400,7 @@ export function FormPage() {
           sheetTab,
           status: "ready",
           isFull: true,
+          isBlacklisted: false,
           message:
             result.message ||
             "Registrations are paused because the event is full. Please contact the organisers if you wish to register.",
@@ -394,6 +428,7 @@ export function FormPage() {
           sheetTab,
           status: "ready",
           isFull: false,
+          isBlacklisted: false,
           message: null,
           holdExpiresAt: result.expiresAt ?? null,
           hasValidHold: true,
@@ -407,6 +442,7 @@ export function FormPage() {
           sheetTab,
           status: "ready",
           isFull: false,
+          isBlacklisted: false,
           message: null,
           holdExpiresAt: null,
           hasValidHold: true,
@@ -475,7 +511,11 @@ export function FormPage() {
   }, [
     apiKey,
     user?.email,
+    user?.username,
     guestEmail,
+    guestPhone,
+    identityPhone,
+    identityEmail,
     isGuestMode,
     isWhitelisted,
     config,
@@ -487,9 +527,14 @@ export function FormPage() {
   const canShowRegistrationForm = isBackfillForm
     ? registrationAllowed
     : config?.skipCapacityCheck
-      ? registrationAllowed && hasRegistrationIdentity && !alreadySubmitted
+      ? registrationAllowed &&
+        hasRegistrationIdentity &&
+        !alreadySubmitted &&
+        !submitBlacklisted
       : shouldCheckCapacity &&
         capacityCheck.status === "ready" &&
+        !capacityCheck.isBlacklisted &&
+        !submitBlacklisted &&
         (!capacityCheck.isFull || isWhitelisted) &&
         (!requiresPayment || hasActiveHold);
 
@@ -531,6 +576,14 @@ export function FormPage() {
       setEmailGateError("Please enter a valid email address.");
       return;
     }
+    if (requiresPayment) {
+      const phone = phoneGateDraft.trim();
+      if (phone.replace(/\D/g, "").length < 10) {
+        setEmailGateError("Please enter a valid 10-digit mobile number.");
+        return;
+      }
+      setGuestPhone(phone);
+    }
     setEmailGateError(null);
     setGuestEmail(email);
     autoRetryCountRef.current = 0;
@@ -552,7 +605,7 @@ export function FormPage() {
   const showEmailGate =
     isGuestMode &&
     continuingAsGuest &&
-    !guestEmail &&
+    !guestIdentityReady &&
     !alreadySubmitted &&
     registrationAllowed &&
     !isBackfillForm;
@@ -585,17 +638,22 @@ export function FormPage() {
   }
 
   if (showEmailGate) {
+    const invitePhoneLocked = Boolean(inviteIdentity.phone?.trim());
     return (
       <div className="flex items-center justify-center py-12">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle>Enter your email</CardTitle>
+            <CardTitle>
+              {requiresPayment ? "Enter your details" : "Enter your email"}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
               {isWhitelistInviteGuest
-                ? `Enter the email to use for your ${config.title} registration.`
-                : `We'll reserve a seat for 5 minutes while you complete registration for ${config.title}.`}
+                ? `Enter the details to use for your ${config.title} registration.`
+                : requiresPayment
+                  ? `We'll check this before reserving a seat for ${config.title}.`
+                  : `We'll reserve a seat for 5 minutes while you complete registration for ${config.title}.`}
             </p>
             <div className="space-y-2">
               <Label htmlFor="guest-email">Email ID</Label>
@@ -610,10 +668,27 @@ export function FormPage() {
                 }}
                 placeholder="you@example.com"
               />
-              {emailGateError && (
-                <p className="text-sm text-destructive">{emailGateError}</p>
-              )}
             </div>
+            {requiresPayment && (
+              <div className="space-y-2">
+                <Label htmlFor="guest-phone">Mobile number</Label>
+                <Input
+                  id="guest-phone"
+                  type="tel"
+                  autoComplete="tel"
+                  value={phoneGateDraft}
+                  readOnly={invitePhoneLocked}
+                  onChange={(e) => setPhoneGateDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleEmailGateContinue();
+                  }}
+                  placeholder="10-digit mobile number"
+                />
+              </div>
+            )}
+            {emailGateError && (
+              <p className="text-sm text-destructive">{emailGateError}</p>
+            )}
             <Button className="w-full" onClick={handleEmailGateContinue}>
               Continue
             </Button>
@@ -624,6 +699,7 @@ export function FormPage() {
                 onClick={() => {
                   setContinuingAsGuest(false);
                   setEmailGateDraft("");
+                  setPhoneGateDraft("");
                   setEmailGateError(null);
                 }}
               >
@@ -769,6 +845,32 @@ export function FormPage() {
               {capacityCheck.message ||
                 "Registrations are paused because the event is full. Please contact the organisers if you wish to register."}
             </p>
+            <Button asChild variant="outline" className="w-full">
+              <Link to="/">Back to Home</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (isRegistrationBlocked) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Unable to register</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {capacityCheck.message ||
+                "We can't complete this registration. Please email us using the contact page on our website."}
+            </p>
+            <Button asChild className="w-full">
+              <a href={CONTACT_PAGE_URL} target="_blank" rel="noopener noreferrer">
+                Open contact page
+              </a>
+            </Button>
             <Button asChild variant="outline" className="w-full">
               <Link to="/">Back to Home</Link>
             </Button>
@@ -996,6 +1098,7 @@ export function FormPage() {
         holdToken,
         phone:
           (typeof data.phone === "string" && data.phone.trim()) ||
+          guestPhone ||
           inviteIdentity.phone ||
           undefined,
       });
@@ -1065,6 +1168,10 @@ export function FormPage() {
       requiresPayment: Boolean(config!.requiresPayment),
       apiKey,
       user,
+      phone:
+        (typeof data.phone === "string" && data.phone.trim()) ||
+        identityPhone ||
+        undefined,
     });
 
     if (isHoldExpiredError(result.error)) {
@@ -1130,7 +1237,9 @@ export function FormPage() {
           isGuestMode
             ? {
                 ...(guestEmail ? { email: guestEmail } : {}),
-                ...(inviteIdentity.phone ? { phone: inviteIdentity.phone } : {}),
+                ...(guestPhone || inviteIdentity.phone
+                  ? { phone: guestPhone ?? inviteIdentity.phone ?? "" }
+                  : {}),
               }
             : undefined
         }
@@ -1147,7 +1256,7 @@ export function FormPage() {
               fields.push("email");
             }
           }
-          if (inviteIdentity.phone) fields.push("phone");
+          if (guestPhone || inviteIdentity.phone) fields.push("phone");
           return fields.length > 0 ? fields : undefined;
         })()}
         onSubmit={handleSubmit}

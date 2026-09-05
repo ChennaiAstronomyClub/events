@@ -1,6 +1,7 @@
 export type RegistrationErrorCode =
   | "full"
   | "duplicate"
+  | "blacklisted"
   | "hold_expired"
   | "hold_required"
   | "registration_not_open"
@@ -8,6 +9,11 @@ export type RegistrationErrorCode =
   | "event_over"
   | "timeout"
   | string;
+
+export const CONTACT_PAGE_URL = "https://chennaiastronomyclub.org/contact/";
+
+const BLACKLISTED_MESSAGE =
+  "We can't complete this registration. Please email us using the contact page on our website.";
 
 /** Safe to retry — idempotent reads/reserve refresh. */
 export function isRetriableError(error?: string): boolean {
@@ -22,10 +28,15 @@ export function isHoldRequiredError(error?: string): boolean {
   return error === "hold_required";
 }
 
+export function isBlacklistedError(error?: string): boolean {
+  return error === "blacklisted";
+}
+
 export function registrationErrorMessage(
   error?: string,
   message?: string | null
 ): string {
+  if (error === "blacklisted") return message?.trim() || BLACKLISTED_MESSAGE;
   if (message) return message;
   switch (error) {
     case "hold_expired":

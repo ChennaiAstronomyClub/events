@@ -147,6 +147,17 @@ export const STATUS_CACHE_TTL_MS = 10_000;
 /** In-memory hold cache TTL per serverless instance (repeat reserve within window). */
 export const HOLD_CACHE_TTL_MS = 30_000;
 
+/** Global denylist tab in the same spreadsheet as event entry tabs. */
+export const DEFAULT_BLACKLIST_SHEET_TAB = "Blacklist";
+/** Blacklist edits happen outside registration windows; long TTL avoids extra Sheets reads. */
+export const BLACKLIST_CACHE_TTL_S = 6 * 60 * 60;
+
+export function blacklistSheetTab(): string {
+  const fromEnv = process.env.BLACKLIST_SHEET_TAB?.trim();
+  if (fromEnv && /^[\w\s-]+$/.test(fromEnv)) return fromEnv;
+  return DEFAULT_BLACKLIST_SHEET_TAB;
+}
+
 export const PAYMENT_COLUMNS = [
   "RequiresPayment",
   "PaymentStatus",
