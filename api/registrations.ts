@@ -21,7 +21,6 @@ import {
   invalidateHoldToken,
 } from "../server/lib/sheets/hold-token.js";
 import { redisGet, redisSet } from "../server/lib/redis/client.js";
-import { sendCalendarInviteIfConfigured } from "../server/lib/calendar/send.js";
 import { userApiKeyFromHeaders } from "../server/lib/discourse-admin.js";
 import { captureServerException } from "../server/lib/sentry.js";
 
@@ -196,10 +195,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (holdToken) await invalidateHoldToken(holdToken);
     }
 
-    if (action === "submit" && result.success) {
-      await maybeSendCalendarInvite(formId, user.email, submitBody.name);
-    }
-
     return res.status(200).json(result);
   } catch (err: unknown) {
     const mapped = mapSheetsError(err);
@@ -209,27 +204,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     await captureServerException(err);
     return res.status(mapped.status).json(mapped.body);
-  }
-}
-
-async function maybeSendCalendarInvite(
-  formId: string,
-  email: string,
-  rawName: unknown
-): Promise<void> {
-  const name = typeof rawName === "string" ? rawName.trim() : "";
-  try {
-    await sendCalendarInviteIfConfigured({
-      formId,
-      attendeeEmail: email,
-      attendeeName: name || undefined,
-    });
-  } catch (err) {
-    console.error(
-      "[registrations] calendar invite failed:",
-      err instanceof Error ? err.message : err
-    );
-    await captureServerException(err);
   }
 }
 
