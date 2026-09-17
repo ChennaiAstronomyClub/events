@@ -3,6 +3,7 @@
  * Keep in sync with FormConfig.allowGuestRegistration in src/config/forms.ts.
  */
 export const GUEST_REGISTRATION_FORM_IDS = new Set([
+  "city-meetup-september-27",
   "city-meetup-august-30",
   "city-meetup-august-2",
   "city-meetup-july-4",
@@ -10,6 +11,7 @@ export const GUEST_REGISTRATION_FORM_IDS = new Set([
 
 /** formId → sheetTab for guest-allowed forms (server trust boundary). */
 export const GUEST_FORM_SHEET_TABS: Record<string, string> = {
+  "city-meetup-september-27": "September 27 Entries",
   "city-meetup-august-30": "August 30 Entries",
   "city-meetup-august-2": "August 2 Entries",
   "city-meetup-july-4": "July 4 Entries",
@@ -17,6 +19,7 @@ export const GUEST_FORM_SHEET_TABS: Record<string, string> = {
 
 /** formId → sheetTab for all forms (keep in sync with src/config/forms.ts). */
 export const FORM_ID_SHEET_TABS: Record<string, string> = {
+  "city-meetup-september-27": "September 27 Entries",
   "star-party-september-2026": "September 12 Entries",
   "perseids-2026": "Perseids Entries",
   "city-meetup-august-30": "August 30 Entries",
@@ -36,6 +39,7 @@ export function expectedSheetTabForForm(formId: string): string | undefined {
 
 /** Per-sheet registration caps. */
 export const REGISTRATION_LIMITS: Record<string, number> = {
+  "September 27 Entries": 23,
   "August 30 Entries": 33,
   "August 2 Entries": 23,
   "July 4 Entries": 23,
@@ -48,7 +52,11 @@ export const REGISTRATION_LIMITS: Record<string, number> = {
  * Keep in sync with FormConfig.allowsRegistrationWhitelist in src/config/forms.ts.
  * Env entries for other formIds are ignored (server trust boundary).
  */
-export const WHITELIST_REGISTRATION_FORM_IDS = new Set(["perseids-2026", "city-meetup-august-30"]);
+export const WHITELIST_REGISTRATION_FORM_IDS = new Set([
+  "perseids-2026",
+  "city-meetup-september-27",
+  "city-meetup-august-30",
+]);
 
 /**
  * Whitelist forms that may submit as guest without a payment hold.
@@ -117,6 +125,7 @@ export function isWhitelistUnpaidForm(formId: string): boolean {
  * in src/config/forms.ts. Never trust the client-supplied requiresPayment flag.
  */
 const FORM_REQUIRES_PAYMENT: Record<string, boolean> = {
+  "city-meetup-september-27": true,
   "star-party-september-2026": false,
   "perseids-2026": false,
   "city-meetup-august-30": true,

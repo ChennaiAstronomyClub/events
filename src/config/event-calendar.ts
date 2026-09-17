@@ -12,6 +12,9 @@ export interface EventCalendarMeta {
 }
 
 export const EVENT_CALENDAR_META: Record<string, EventCalendarMeta> = {
+  "city-meetup-september-27": {
+    title: "City Meetup Series: Towards Black Hole Movies in Radio Light",
+  },
   "star-party-september-2026": {
     title: "Star Party - September 2026",
   },

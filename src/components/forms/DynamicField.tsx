@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useFormContext } from "react-hook-form";
 import type { FormFieldConfig, PaymentPricing } from "@/types/forms";
 import {
@@ -60,6 +60,18 @@ export function DynamicField({ field, readOnly, paymentPricing }: DynamicFieldPr
       : 0;
 
   const baseClass = readOnly ? "bg-muted cursor-not-allowed" : "";
+  const hasPaymentChrome = Boolean(
+    showPayableAmount || field.copyableValue || field.helperImageUrl
+  );
+  const hasExtras =
+    field.type !== "checkbox" &&
+    Boolean(
+      field.helperText ||
+        field.helperLinkUrl ||
+        field.copyableValue ||
+        field.helperImageUrl ||
+        showPayableAmount
+    );
 
   async function copyHelperValue(text: string) {
     try {
@@ -71,87 +83,96 @@ export function DynamicField({ field, readOnly, paymentPricing }: DynamicFieldPr
     }
   }
 
+  const extras: ReactNode = hasExtras ? (
+    <div className="mb-3 space-y-2">
+      {showPayableAmount && paymentPricing && (
+        <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2">
+          <p className="text-sm font-semibold text-foreground">
+            Amount to pay: {formatInr(payableAmount)}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {payingAdults} adult{payingAdults === 1 ? "" : "s"} ×{" "}
+            {formatInr(paymentPricing.adultFee)}. Kids under 12 are free.
+          </p>
+        </div>
+      )}
+      {(field.helperText || field.helperLinkUrl) && (
+        <p className="text-xs text-muted-foreground">
+          {field.helperText}
+          {field.helperText && field.helperLinkUrl ? " " : ""}
+          {field.helperLinkUrl && (
+            <a
+              href={field.helperLinkUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-primary underline underline-offset-2"
+            >
+              {field.helperLinkLabel || "Open link"}
+            </a>
+          )}
+        </p>
+      )}
+      {field.copyableValue && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-xs text-muted-foreground">
+            {field.copyableLabel ?? "UPI ID"}:
+          </span>
+          <code className="rounded-md bg-muted px-2 py-1 font-mono text-xs text-foreground">
+            {field.copyableValue}
+          </code>
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            onClick={() => copyHelperValue(field.copyableValue!)}
+          >
+            {copied ? (
+              <>
+                <Check />
+                Copied
+              </>
+            ) : (
+              <>
+                <Copy />
+                Copy
+              </>
+            )}
+          </Button>
+        </div>
+      )}
+      {field.helperImageUrl && (
+        <img
+          src={field.helperImageUrl}
+          alt={field.helperImageAlt || "Payment QR code"}
+          className="mx-auto max-h-64 w-auto rounded-md border border-border bg-white p-2"
+        />
+      )}
+    </div>
+  ) : null;
+
+  const fieldLabel =
+    field.type !== "checkbox" ? (
+      <Label htmlFor={field.name} className="mb-2 flex-1">
+        <span>
+          {field.label}
+          {field.required && <span className="text-destructive"> *</span>}
+        </span>
+        {readOnly && <Lock className="h-3 w-3 text-muted-foreground" />}
+      </Label>
+    ) : null;
+
   return (
     <div className={`flex flex-col${field.fullWidth ? " col-span-full" : ""}`}>
-      {field.type !== "checkbox" && (
-        <Label htmlFor={field.name} className="mb-2 flex-1">
-          <span>
-            {field.label}
-            {field.required && <span className="text-destructive"> *</span>}
-          </span>
-          {readOnly && <Lock className="h-3 w-3 text-muted-foreground" />}
-        </Label>
-      )}
-      {field.type !== "checkbox" &&
-        (field.helperText ||
-          field.helperLinkUrl ||
-          field.copyableValue ||
-          field.helperImageUrl ||
-          showPayableAmount) && (
-        <div className="mb-3 space-y-2">
-          {showPayableAmount && paymentPricing && (
-            <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2">
-              <p className="text-sm font-semibold text-foreground">
-                Amount to pay: {formatInr(payableAmount)}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {payingAdults} adult{payingAdults === 1 ? "" : "s"} ×{" "}
-                {formatInr(paymentPricing.adultFee)}. Kids under 16 are free.
-              </p>
-            </div>
-          )}
-          {(field.helperText || field.helperLinkUrl) && (
-            <p className="text-xs text-muted-foreground">
-              {field.helperText}
-              {field.helperText && field.helperLinkUrl ? " " : ""}
-              {field.helperLinkUrl && (
-                <a
-                  href={field.helperLinkUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium text-primary underline underline-offset-2"
-                >
-                  {field.helperLinkLabel || "Open link"}
-                </a>
-              )}
-            </p>
-          )}
-          {field.copyableValue && (
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-xs text-muted-foreground">
-                {field.copyableLabel ?? "UPI ID"}:
-              </span>
-              <code className="rounded-md bg-muted px-2 py-1 font-mono text-xs text-foreground">
-                {field.copyableValue}
-              </code>
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                onClick={() => copyHelperValue(field.copyableValue!)}
-              >
-                {copied ? (
-                  <>
-                    <Check />
-                    Copied
-                  </>
-                ) : (
-                  <>
-                    <Copy />
-                    Copy
-                  </>
-                )}
-              </Button>
-            </div>
-          )}
-          {field.helperImageUrl && (
-            <img
-              src={field.helperImageUrl}
-              alt={field.helperImageAlt || "Payment QR code"}
-              className="mx-auto max-h-64 w-auto rounded-md border border-border bg-white p-2"
-            />
-          )}
-        </div>
+      {hasPaymentChrome ? (
+        <>
+          {extras}
+          {fieldLabel}
+        </>
+      ) : (
+        <>
+          {fieldLabel}
+          {extras}
+        </>
       )}
 
       {field.type === "textarea" ? (
@@ -241,28 +262,18 @@ export function DynamicField({ field, readOnly, paymentPricing }: DynamicFieldPr
           min={field.validation?.min}
           max={field.validation?.max}
           value={
-            typeof value === "number" && !Number.isNaN(value) && value !== 0
-              ? String(value)
-              : ""
+            typeof value === "number" && Number.isFinite(value) ? String(value) : ""
           }
           onChange={(e) => {
             const raw = e.target.value;
             if (raw === "") {
-              setValue(field.name, field.validation?.min === 0 ? 0 : undefined, {
-                shouldValidate: true,
-              });
+              setValue(field.name, undefined, { shouldValidate: true });
               return;
             }
             const parsed = Number(raw);
-            setValue(
-              field.name,
-              Number.isNaN(parsed)
-                ? field.validation?.min === 0
-                  ? 0
-                  : undefined
-                : parsed,
-              { shouldValidate: true }
-            );
+            setValue(field.name, Number.isNaN(parsed) ? undefined : parsed, {
+              shouldValidate: true,
+            });
           }}
         />
       ) : (
@@ -272,6 +283,13 @@ export function DynamicField({ field, readOnly, paymentPricing }: DynamicFieldPr
           placeholder={field.placeholder}
           readOnly={readOnly}
           className={baseClass}
+          inputMode={field.validation?.pattern?.includes("\\d") ? "numeric" : undefined}
+          autoComplete={field.name === "upiReferenceLast4" ? "off" : undefined}
+          maxLength={
+            field.type === "text" && field.validation?.max !== undefined
+              ? field.validation.max
+              : undefined
+          }
           {...register(field.name)}
         />
       )}

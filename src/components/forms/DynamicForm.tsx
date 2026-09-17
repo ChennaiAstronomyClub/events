@@ -59,11 +59,6 @@ export function getDiscourseValue(user: DiscourseUser, path: string): string {
 // ---- Schema builder ----
 
 /** Build a Zod object schema dynamically from an array of field configs. */
-function numFieldValue(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  return 0;
-}
-
 function buildZodSchema(
   fields: FormFieldConfig[],
   atLeastOneOf?: FormConfig["atLeastOneOf"],
@@ -94,20 +89,18 @@ function buildZodSchema(
       const minMessage = field.validation?.message || `${field.label} must be at least ${field.validation?.min}`;
       const maxMessage = field.validation?.message || `${field.label} must be at most ${field.validation?.max}`;
 
-      const emptyAsZero = field.validation?.min === 0;
       const parsedNumber = z.preprocess((value) => {
-        // Empty number inputs can arrive as NaN; when min is 0, treat cleared fields as 0.
         if (value === "" || value === null || value === undefined) {
-          return emptyAsZero ? 0 : undefined;
+          return undefined;
         }
         if (typeof value === "number") {
-          return Number.isNaN(value) ? (emptyAsZero ? 0 : undefined) : value;
+          return Number.isNaN(value) ? undefined : value;
         }
         if (typeof value === "string") {
           const parsed = Number(value);
-          return Number.isNaN(parsed) ? (emptyAsZero ? 0 : undefined) : parsed;
+          return Number.isNaN(parsed) ? undefined : parsed;
         }
-        return emptyAsZero ? 0 : undefined;
+        return undefined;
       }, z.number().optional());
 
       let schema = parsedNumber;
@@ -175,11 +168,7 @@ function buildZodSchema(
       } else if (field.type === "checkbox-group") {
         hasValue = Array.isArray(value) && value.length > 0;
       } else if (field.type === "number") {
-        hasValue =
-          value !== undefined &&
-          value !== null &&
-          !Number.isNaN(value as number) &&
-          (field.validation?.min !== 0 || (value as number) >= 0);
+        hasValue = typeof value === "number" && Number.isFinite(value);
       } else {
         hasValue = typeof value === "string" ? value.trim().length > 0 : !!value;
       }
@@ -237,9 +226,15 @@ function buildZodSchema(
     if (additionalParticipants) {
       const { when, adultField, kidField, maxAdults, maxKids, maxTotal } =
         additionalParticipants;
-      if (data[when.field] === when.value) {
-        const adults = numFieldValue(data[adultField]);
-        const kids = numFieldValue(data[kidField]);
+      const adults = data[adultField];
+      const kids = data[kidField];
+      if (
+        data[when.field] === when.value &&
+        typeof adults === "number" &&
+        Number.isFinite(adults) &&
+        typeof kids === "number" &&
+        Number.isFinite(kids)
+      ) {
         const total = adults + kids;
 
         if (adults > maxAdults) {
