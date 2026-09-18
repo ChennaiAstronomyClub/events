@@ -39,7 +39,7 @@ export function expectedSheetTabForForm(formId: string): string | undefined {
 
 /** Per-sheet registration caps. */
 export const REGISTRATION_LIMITS: Record<string, number> = {
-  "September 27 Entries": 23,
+  "September 27 Entries": 26,
   "August 30 Entries": 33,
   "August 2 Entries": 23,
   "July 4 Entries": 23,
