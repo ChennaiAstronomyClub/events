@@ -48,9 +48,9 @@ export const REGISTRATION_LIMITS: Record<string, number> = {
 };
 
 /**
- * Form IDs that allow closed/full bypass via REGISTRATION_WHITELISTS env.
+ * Form IDs that allow closed/full bypass via env and/or the Registration Whitelist sheet.
  * Keep in sync with FormConfig.allowsRegistrationWhitelist in src/config/forms.ts.
- * Env entries for other formIds are ignored (server trust boundary).
+ * Env/sheet entries for other formIds are ignored (server trust boundary).
  */
 export const WHITELIST_REGISTRATION_FORM_IDS = new Set([
   "perseids-2026",
@@ -67,7 +67,9 @@ export const WHITELIST_UNPAID_FORM_IDS = new Set(["perseids-2026"]);
 
 /**
  * Emails/phones allowed past closed windows or capacity.
- * Loaded from server-only env `REGISTRATION_WHITELISTS` (never commit real values).
+ * Env `REGISTRATION_WHITELISTS` is optional bootstrap (never commit real values).
+ * Admin-managed identities live on the Registration Whitelist sheet tab and are
+ * merged at lookup time.
  *
  * Example:
  * REGISTRATION_WHITELISTS={"perseids-2026":{"emails":["a@test.com"],"phones":["9xxxx"]}}
@@ -105,15 +107,16 @@ function parseRegistrationWhitelists(): Record<string, RegistrationWhitelist> {
   }
 }
 
-let cachedWhitelists: Record<string, RegistrationWhitelist> | null = null;
+let cachedEnvWhitelists: Record<string, RegistrationWhitelist> | null = null;
 
-export function registrationWhitelistForForm(
+/** Env-only identities for a form. Sheet rows are merged in registration-whitelist.ts. */
+export function envRegistrationWhitelistForForm(
   formId: string
 ): RegistrationWhitelist | undefined {
-  if (!cachedWhitelists) cachedWhitelists = parseRegistrationWhitelists();
+  if (!cachedEnvWhitelists) cachedEnvWhitelists = parseRegistrationWhitelists();
   const key = formId.trim();
   if (!key || !WHITELIST_REGISTRATION_FORM_IDS.has(key)) return undefined;
-  return cachedWhitelists[key];
+  return cachedEnvWhitelists[key];
 }
 
 export function isWhitelistUnpaidForm(formId: string): boolean {
@@ -165,6 +168,18 @@ export function blacklistSheetTab(): string {
   const fromEnv = process.env.BLACKLIST_SHEET_TAB?.trim();
   if (fromEnv && /^[\w\s-]+$/.test(fromEnv)) return fromEnv;
   return DEFAULT_BLACKLIST_SHEET_TAB;
+}
+
+/** Admin-managed closed/full bypass identities (same spreadsheet as event tabs). */
+export const DEFAULT_WHITELIST_SHEET_TAB = "Registration Whitelist";
+/** Same horizon as Blacklist; admin add/remove still delete the Redis key immediately. */
+export const WHITELIST_CACHE_TTL_S = 6 * 60 * 60;
+export const WHITELIST_NOTES_MAX = 200;
+
+export function whitelistSheetTab(): string {
+  const fromEnv = process.env.WHITELIST_SHEET_TAB?.trim();
+  if (fromEnv && /^[\w\s-]+$/.test(fromEnv)) return fromEnv;
+  return DEFAULT_WHITELIST_SHEET_TAB;
 }
 
 export const PAYMENT_COLUMNS = [

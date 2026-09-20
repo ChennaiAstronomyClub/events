@@ -17,6 +17,9 @@
     },
     "api/calendar-invites.ts": {
       "maxDuration": 60
+    },
+    "api/registration-whitelist.ts": {
+      "maxDuration": 30
     }
   },
   "rewrites": [

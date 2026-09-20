@@ -1,5 +1,5 @@
 export type AdminVerifyResult =
-  | { ok: true }
+  | { ok: true; username?: string }
   | { ok: false; status: number; error: string };
 
 function discourseBaseUrl(): string {
@@ -44,13 +44,14 @@ export async function verifyDiscourseAdmin(
       return { ok: false, status: 403, error: "Forbidden" };
     }
     const sessionData = (await sessionRes.json()) as {
-      current_user?: { admin?: boolean };
+      current_user?: { admin?: boolean; username?: string };
     };
     // Discourse also has moderator/staff. Only site admin is allowed.
     if (sessionData.current_user?.admin !== true) {
       return { ok: false, status: 403, error: "Requires Discourse admin" };
     }
-    return { ok: true };
+    const username = sessionData.current_user.username?.trim();
+    return username ? { ok: true, username } : { ok: true };
   } catch {
     return { ok: false, status: 500, error: "Failed to verify admin status" };
   }

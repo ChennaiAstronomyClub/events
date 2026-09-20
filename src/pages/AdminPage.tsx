@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { CalendarPlus, ClipboardList } from "lucide-react";
+import { CalendarPlus, ClipboardList, UserPlus } from "lucide-react";
 
 /**
  * Admin hub for event administration tools.
@@ -57,6 +57,24 @@ export function AdminPage() {
           <CardContent>
             <Button asChild className="w-full sm:w-auto">
               <Link to="/admin/invites">Send calendar invites</Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <UserPlus className="size-4" />
+              Registration whitelist
+            </CardTitle>
+            <CardDescription>
+              Open a closed, not-yet-open, or full event for specific emails or
+              phones, then copy a shareable invite link.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild className="w-full sm:w-auto">
+              <Link to="/admin/whitelist">Manage whitelist</Link>
             </Button>
           </CardContent>
         </Card>

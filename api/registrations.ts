@@ -9,12 +9,13 @@ import { mapSheetsError } from "../server/lib/sheets/errors.js";
 import "../server/lib/sheets/client.js";
 import {
   GUEST_REGISTRATION_FORM_IDS,
+  WHITELIST_REGISTRATION_FORM_IDS,
   expectedSheetTabForForm,
   formRequiresPayment,
   isWhitelistUnpaidForm,
-  registrationWhitelistForForm,
 } from "../server/lib/sheets/config.js";
 import { matchesRegistrationWhitelist } from "../server/lib/sheets/whitelist.js";
+import { registrationWhitelistForForm } from "../server/lib/sheets/registration-whitelist.js";
 import {
   createHoldToken,
   resolveHoldToken,
@@ -63,7 +64,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const body = req.body as Record<string, unknown> | undefined;
   const actionRaw = typeof body?.action === "string" ? body.action.trim() : "";
 
-  // Whitelist check is env-backed and does not need Sheets.
+  // Whitelist check never returns the list itself. Env + sheet are merged server-side.
   if (actionRaw === "whitelistCheck") {
     return handleWhitelistCheck(req, res, discourseUrl, body ?? {});
   }
@@ -92,7 +93,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const whitelistGuestOk =
     !userApiKey &&
     formId.length > 0 &&
-    isWhitelistGuestIdentity(formId, body ?? {});
+    (await isWhitelistGuestIdentity(formId, body ?? {}));
   const isGuestRequest = Boolean(!userApiKey && (isOpenGuestForm || whitelistGuestOk));
 
   if (!userApiKey && !isGuestRequest) {
@@ -118,11 +119,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     memberType = "guest";
     holdTokenForRelease = guestResolved.holdToken;
 
-    // Whitelist-only guest forms must match env on every mutating/status call.
+    // Whitelist-only guest forms must match env/sheet on every mutating/status call.
     if (!isOpenGuestForm && action !== "status") {
       const phone = phoneFromRegistrationBody(body ?? {});
       if (
-        !matchesRegistrationWhitelist(registrationWhitelistForForm(formId), {
+        !matchesRegistrationWhitelist(await registrationWhitelistForForm(formId), {
           email: user.email,
           phone,
         })
@@ -268,12 +269,12 @@ function emailFromRegistrationBody(body: Record<string, unknown>): string | null
   return null;
 }
 
-/** Guest may register on a non-open-guest form only when identity matches env whitelist. */
-function isWhitelistGuestIdentity(
+/** Guest may register on a non-open-guest form only when identity matches env/sheet whitelist. */
+async function isWhitelistGuestIdentity(
   formId: string,
   body: Record<string, unknown>
-): boolean {
-  const whitelist = registrationWhitelistForForm(formId);
+): Promise<boolean> {
+  const whitelist = await registrationWhitelistForForm(formId);
   if (!whitelist) return false;
   return matchesRegistrationWhitelist(whitelist, {
     email: emailFromRegistrationBody(body),
@@ -289,7 +290,7 @@ async function resolveGuestUser(
   res: VercelResponse
 ): Promise<{ user: DiscourseUserSummary; holdToken?: string } | null> {
   const isOpenGuest = GUEST_REGISTRATION_FORM_IDS.has(formId);
-  const isWhitelistForm = Boolean(registrationWhitelistForForm(formId));
+  const isWhitelistForm = WHITELIST_REGISTRATION_FORM_IDS.has(formId);
   if (!isOpenGuest && !isWhitelistForm) {
     res.status(403).json({ success: false, error: "Forbidden" });
     return null;
@@ -504,7 +505,7 @@ function normalizeAction(value: unknown): RegistrationAction | null {
 
 /**
  * Returns whether the identity may bypass closed/full registration.
- * Uses server-only REGISTRATION_WHITELISTS env — never returns the list itself.
+ * Uses env ∪ sheet identities — never returns the list itself.
  *
  * Auth modes:
  * - Logged-in: Discourse user email (+ optional phone from body)
@@ -522,7 +523,8 @@ async function handleWhitelistCheck(
     return;
   }
 
-  if (!registrationWhitelistForForm(formId)) {
+  const whitelist = await registrationWhitelistForForm(formId);
+  if (!whitelist) {
     res.status(200).json({ success: true, allowed: false });
     return;
   }
@@ -539,10 +541,10 @@ async function handleWhitelistCheck(
       res.status(401).json({ success: false, error: "Unauthorized" });
       return;
     }
-    const allowed = matchesRegistrationWhitelist(
-      registrationWhitelistForForm(formId),
-      { email: bodyEmail, phone: bodyPhone }
-    );
+    const allowed = matchesRegistrationWhitelist(whitelist, {
+      email: bodyEmail,
+      phone: bodyPhone,
+    });
     res.status(200).json({ success: true, allowed });
     return;
   }
@@ -556,14 +558,11 @@ async function handleWhitelistCheck(
   );
   if (!resolved) return;
 
-  const allowed = matchesRegistrationWhitelist(
-    registrationWhitelistForForm(formId),
-    {
-      // Authenticated checks use Discourse email only — ignore client phone spoofing.
-      email: resolved.user.email,
-      phone: null,
-    }
-  );
+  const allowed = matchesRegistrationWhitelist(whitelist, {
+    // Authenticated checks use Discourse email only — ignore client phone spoofing.
+    email: resolved.user.email,
+    phone: null,
+  });
 
   res.status(200).json({ success: true, allowed });
 }

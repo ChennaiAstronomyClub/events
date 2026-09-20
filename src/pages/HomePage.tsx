@@ -1,9 +1,11 @@
 import { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { ChevronDown } from "lucide-react";
 import {
-  getListedFormConfigs,
   getRegistrationStatus,
+  groupListedFormsForHome,
   isEventOver,
+  type HomeListingSection,
 } from "@/config/forms";
 import { PHONE_FIELD_ID } from "@/config/discourse-fields";
 import { useAuth } from "@/hooks/useAuth";
@@ -139,10 +141,49 @@ function EventRegistrationCard({
   );
 }
 
+const HOME_LISTING_SECTIONS: {
+  key: HomeListingSection;
+  title: string;
+  collapsed?: boolean;
+}[] = [
+  { key: "open", title: "Open" },
+  { key: "upcoming", title: "Upcoming" },
+  { key: "past", title: "Past", collapsed: true },
+];
+
+function EventCardsGrid({
+  forms,
+  userEmail,
+  userPhone,
+  apiKey,
+  user,
+}: {
+  forms: FormConfig[];
+  userEmail: string | undefined;
+  userPhone: string | undefined;
+  apiKey: string | null;
+  user: ReturnType<typeof useAuth>["user"];
+}) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      {forms.map((form) => (
+        <EventRegistrationCard
+          key={form.id}
+          form={form}
+          userEmail={userEmail}
+          userPhone={userPhone}
+          apiKey={apiKey}
+          user={user}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function HomePage() {
   const location = useLocation();
   const { user, apiKey } = useAuth();
-  const forms = useMemo(() => getListedFormConfigs(), []);
+  const sections = useMemo(() => groupListedFormsForHome(), []);
   const routeState =
     (location.state as {
       cancelled?: string;
@@ -183,18 +224,41 @@ export function HomePage() {
         <h1 className="text-3xl font-bold">Registrations</h1>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {forms.map((form) => (
-          <EventRegistrationCard
-            key={form.id}
-            form={form}
+      {HOME_LISTING_SECTIONS.map(({ key, title, collapsed }) => {
+        const forms = sections[key];
+        if (forms.length === 0) return null;
+        const cards = (
+          <EventCardsGrid
+            forms={forms}
             userEmail={user?.email}
             userPhone={userPhone}
             apiKey={apiKey}
             user={user}
           />
-        ))}
-      </div>
+        );
+        if (collapsed) {
+          return (
+            <section key={key}>
+              <details className="group space-y-4">
+                <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md text-xl font-semibold outline-none select-none focus-visible:ring-ring/50 focus-visible:ring-[3px] [&::-webkit-details-marker]:hidden">
+                  <ChevronDown className="size-5 shrink-0 transition-transform group-open:rotate-180" />
+                  {title}
+                  <span className="text-base font-normal text-muted-foreground">
+                    {forms.length} {forms.length === 1 ? "event" : "events"}
+                  </span>
+                </summary>
+                {cards}
+              </details>
+            </section>
+          );
+        }
+        return (
+          <section key={key} className="space-y-4">
+            <h2 className="text-xl font-semibold">{title}</h2>
+            {cards}
+          </section>
+        );
+      })}
     </div>
   );
 }

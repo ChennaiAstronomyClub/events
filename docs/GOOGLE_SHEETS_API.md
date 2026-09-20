@@ -27,6 +27,12 @@ GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\
 
 If an older Apps Script **Web app** is still deployed on the spreadsheet (Access: Anyone), archive or delete it. That public `doPost` path is unused.
 
+## Registration whitelist tab
+
+Admins add per-event identities from **Admin → Registration whitelist**. The API creates a **Registration Whitelist** tab (override with `WHITELIST_SHEET_TAB`) on first add, with headers `Form ID`, `Email`, `Phone`, `Notes`, `Added By`, `Added At`, `Status`. Soft-delete sets `Status` to `Removed`.
+
+Optional env `REGISTRATION_WHITELISTS` is merged for matching and shown as read-only in the admin UI. Invite links (`/form/{id}?email=...` and/or `?phone=...`) are secret-by-knowledge.
+
 ## Concurrency
 
 Writes are serialized per sheet tab on each serverless instance. New rows use `values.append` (atomic). Holds are released and duplicates resolved by marking rows `Expired` (rows are never physically deleted), so row indices stay stable under parallel requests.

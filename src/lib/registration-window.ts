@@ -26,6 +26,68 @@ export function isEventOver(window: FormRegistrationWindow | undefined): boolean
   return parseIstDateTime(window.endTime) < new Date();
 }
 
+export type HomeListingSection = "open" | "upcoming" | "past";
+
+/**
+ * Past for the public listing: ended events, started events with no endTime,
+ * or closed forms with no remaining start/end date (legacy listings).
+ */
+export function isListedEventPast(
+  window: FormRegistrationWindow | undefined
+): boolean {
+  if (isEventOver(window)) return true;
+  if (!window) return false;
+  const now = new Date();
+  if (!window.endTime && window.startTime && parseIstDateTime(window.startTime) < now) {
+    return true;
+  }
+  if (
+    !window.startTime &&
+    !window.endTime &&
+    getRegistrationStatus(window) === "closed"
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function getHomeListingSection(
+  window: FormRegistrationWindow | undefined
+): HomeListingSection {
+  if (isListedEventPast(window)) return "past";
+  if (getRegistrationStatus(window) === "open") return "open";
+  return "upcoming";
+}
+
+function listingStartMs(window: FormRegistrationWindow): number {
+  return window.startTime
+    ? parseIstDateTime(window.startTime).getTime()
+    : Number.POSITIVE_INFINITY;
+}
+
+function listingRecencyMs(window: FormRegistrationWindow): number {
+  const iso = window.endTime ?? window.startTime;
+  return iso ? parseIstDateTime(iso).getTime() : Number.NEGATIVE_INFINITY;
+}
+
+/** Group listed forms into Open / Upcoming / Past with section-specific sort. */
+export function groupFormsForHomeListing<T extends FormRegistrationWindow>(
+  forms: T[]
+): Record<HomeListingSection, T[]> {
+  const grouped: Record<HomeListingSection, T[]> = {
+    open: [],
+    upcoming: [],
+    past: [],
+  };
+  for (const form of forms) {
+    grouped[getHomeListingSection(form)].push(form);
+  }
+  grouped.open.sort((a, b) => listingStartMs(a) - listingStartMs(b));
+  grouped.upcoming.sort((a, b) => listingStartMs(a) - listingStartMs(b));
+  grouped.past.sort((a, b) => listingRecencyMs(b) - listingRecencyMs(a));
+  return grouped;
+}
+
 /**
  * Gate for new registrations (reserve/submit).
  * Whitelist may bypass closed / not-yet-open, but never an ended event.

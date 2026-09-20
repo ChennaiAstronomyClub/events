@@ -2,7 +2,6 @@ import {
   PENDING_SEAT_HOLD_MS,
   REGISTRATION_LIMITS,
   formRequiresPayment,
-  registrationWhitelistForForm,
 } from "./config.js";
 import {
   consolidateDuplicatePendingRows,
@@ -16,6 +15,7 @@ import {
   type SheetData,
 } from "./logic.js";
 import { matchesRegistrationWhitelist } from "./whitelist.js";
+import { registrationWhitelistForForm } from "./registration-whitelist.js";
 import { isIdentityBlacklisted } from "./blacklist.js";
 import { createRepository, type SheetRepository } from "./repository.js";
 import { getSpreadsheetId } from "./client.js";
@@ -79,30 +79,30 @@ function phoneFromBody(body: Record<string, unknown>): string | null {
   return null;
 }
 
-function isCapacityBypassed(
+async function isCapacityBypassed(
   body: Record<string, unknown>,
   user: RegistrationUser
-): boolean {
+): Promise<boolean> {
   const formId = typeof body.formId === "string" ? body.formId.trim() : "";
   if (!formId) return false;
   // Authenticated users: trust Discourse email only — never client-supplied phone.
   // Guest invite links: phone from the invite/form may authorize when email is not listed.
   const phone =
     user.memberType === "guest" ? phoneFromBody(body) : null;
-  return matchesRegistrationWhitelist(registrationWhitelistForForm(formId), {
+  return matchesRegistrationWhitelist(await registrationWhitelistForForm(formId), {
     email: user.email,
     phone,
   });
 }
 
-function denyNewRegistrationIfWindowClosed(
+async function denyNewRegistrationIfWindowClosed(
   body: Record<string, unknown>,
   user: RegistrationUser
-): Record<string, unknown> | null {
+): Promise<Record<string, unknown> | null> {
   const formId = typeof body.formId === "string" ? body.formId.trim() : "";
   const denial = getNewRegistrationDenial(
     getFormRegistrationWindow(formId),
-    isCapacityBypassed(body, user)
+    await isCapacityBypassed(body, user)
   );
   if (!denial) return null;
   return { success: false, ...denial };
@@ -374,7 +374,7 @@ async function handleReserve(
   const blacklisted = await denyIfBlacklisted(user, body);
   if (blacklisted) return blacklisted;
 
-  const windowDenied = denyNewRegistrationIfWindowClosed(body, user);
+  const windowDenied = await denyNewRegistrationIfWindowClosed(body, user);
   if (windowDenied) return windowDenied;
 
   const email = user.email;
@@ -412,7 +412,7 @@ async function handleReserveWork(
   const preData = await repo.readSheetData();
   const preScan = scanRegistrations(preData.headers, preData.rows, now.getTime(), opts);
   const preActiveRow = findActiveRowByEmailInData(preData.headers, preData.rows, email);
-  const bypassCapacity = isCapacityBypassed(body, user);
+  const bypassCapacity = await isCapacityBypassed(body, user);
 
   if (preActiveRow <= 0 && !bypassCapacity && isAtCapacity(preScan, limit)) {
     return registrationFullResponse();
@@ -604,7 +604,7 @@ async function handleSubmit(
   const blacklisted = await denyIfBlacklisted(user, body);
   if (blacklisted) return blacklisted;
 
-  const windowDenied = denyNewRegistrationIfWindowClosed(body, user);
+  const windowDenied = await denyNewRegistrationIfWindowClosed(body, user);
   if (windowDenied) return windowDenied;
 
   const exclude = new Set([
@@ -729,7 +729,7 @@ async function handleSubmit(
     }
 
     if (
-      !isCapacityBypassed(body, user) &&
+      !(await isCapacityBypassed(body, user)) &&
       typeof limit === "number" &&
       activeRegistrations >= limit
     ) {

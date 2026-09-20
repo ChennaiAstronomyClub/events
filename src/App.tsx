@@ -17,6 +17,12 @@ const CalendarInvitesPage = lazy(() =>
   }))
 );
 
+const RegistrationWhitelistPage = lazy(() =>
+  import("@/pages/RegistrationWhitelistPage").then((module) => ({
+    default: module.RegistrationWhitelistPage,
+  }))
+);
+
 const SentryRoutes = Sentry.wrapReactRouterRouting(Routes);
 
 export default function App() {
@@ -40,6 +46,18 @@ export default function App() {
                   }
                 >
                   <CalendarInvitesPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/admin/whitelist"
+              element={
+                <Suspense
+                  fallback={
+                    <div className="py-12 text-center text-muted-foreground">Loading…</div>
+                  }
+                >
+                  <RegistrationWhitelistPage />
                 </Suspense>
               }
             />

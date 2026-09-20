@@ -24,3 +24,17 @@ export function parseWhitelistInviteParams(
 export function hasWhitelistInviteParams(identity: WhitelistInviteIdentity): boolean {
   return Boolean(identity.email?.trim() || identity.phone?.trim());
 }
+
+/** Path for a shareable guest invite. Treat the URL as a secret. */
+export function buildWhitelistInvitePath(
+  formId: string,
+  identity: { email?: string | null; phone?: string | null }
+): string {
+  const params = new URLSearchParams();
+  const email = identity.email?.trim();
+  const phone = identity.phone?.trim();
+  if (email) params.set(WHITELIST_INVITE_EMAIL_PARAM, email);
+  if (phone) params.set(WHITELIST_INVITE_PHONE_PARAM, phone);
+  const qs = params.toString();
+  return qs ? `/form/${encodeURIComponent(formId)}?${qs}` : `/form/${encodeURIComponent(formId)}`;
+}

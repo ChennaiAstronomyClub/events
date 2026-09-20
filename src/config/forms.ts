@@ -3,7 +3,10 @@ import { parseIstDateTime } from "@/lib/datetime";
 import {
   getRegistrationStatus as getWindowRegistrationStatus,
   isEventOver as isWindowEventOver,
+  getHomeListingSection as getWindowHomeListingSection,
+  groupFormsForHomeListing as groupWindowFormsForHomeListing,
   type RegistrationStatus,
+  type HomeListingSection,
 } from "@/lib/registration-window";
 import { FORM_REGISTRATION_WINDOWS } from "./registration-windows";
 import {
@@ -13,7 +16,7 @@ import {
   AGE_GROUP_FIELD_ID,
 } from "./discourse-fields";
 
-export type { RegistrationStatus };
+export type { RegistrationStatus, HomeListingSection };
 
 export const formConfigs: FormConfig[] = [
   {
@@ -1792,6 +1795,10 @@ export function getListedFormConfigs(): FormConfig[] {
   return formConfigs.filter((f) => !f.hiddenFromListing);
 }
 
+export function getWhitelistEnabledFormConfigs(): FormConfig[] {
+  return getListedFormConfigs().filter((f) => f.allowsRegistrationWhitelist);
+}
+
 /**
  * Compute whether registration is currently open, not yet open, or closed
  * based on the form's registrationOpensAt / registrationClosesAt timestamps (IST).
@@ -1804,6 +1811,14 @@ export function getRegistrationStatus(config: FormConfig): RegistrationStatus {
 /** True once the event's endTime has passed. Forms without endTime are never over. */
 export function isEventOver(config: FormConfig): boolean {
   return isWindowEventOver(config);
+}
+
+export function getHomeListingSection(config: FormConfig): HomeListingSection {
+  return getWindowHomeListingSection(config);
+}
+
+export function groupListedFormsForHome(): Record<HomeListingSection, FormConfig[]> {
+  return groupWindowFormsForHomeListing(getListedFormConfigs());
 }
 
 /** Default form for the attendance check-in page (next upcoming listed event). */
@@ -1823,4 +1838,12 @@ export function getDefaultAttendanceFormId(): string {
   if (notOver.length > 0) return notOver[0].id;
 
   return listed[0]?.id ?? "";
+}
+
+/** Default form for the registration whitelist admin page. */
+export function getDefaultWhitelistFormId(): string {
+  const forms = getWhitelistEnabledFormConfigs();
+  const defaultId = getDefaultAttendanceFormId();
+  if (forms.some((f) => f.id === defaultId)) return defaultId;
+  return forms[0]?.id ?? "";
 }
