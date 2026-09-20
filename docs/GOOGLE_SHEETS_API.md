@@ -29,9 +29,9 @@ If an older Apps Script **Web app** is still deployed on the spreadsheet (Access
 
 ## Registration whitelist tab
 
-Admins add per-event identities from **Admin → Registration whitelist**. The API creates a **Registration Whitelist** tab (override with `WHITELIST_SHEET_TAB`) on first add, with headers `Form ID`, `Email`, `Phone`, `Notes`, `Added By`, `Added At`, `Status`. Soft-delete sets `Status` to `Removed`.
+Admins add per-event identities from **Admin → Registration whitelist**. The API creates a **Registration Whitelist** tab (override with `WHITELIST_SHEET_TAB`) on first add, with headers `Form ID`, `Email`, `Phone`, `Invite Token`, `Notes`, `Added By`, `Added At`, `Status`. Soft-delete sets `Status` to `Removed`.
 
-Optional env `REGISTRATION_WHITELISTS` is merged for matching and shown as read-only in the admin UI. Invite links (`/form/{id}?email=...` and/or `?phone=...`) are secret-by-knowledge.
+Optional env `REGISTRATION_WHITELISTS` is merged for matching and shown as read-only in the admin UI. Shareable guest links use a unique random `?invite=` token per row (treat the URL as a secret).
 
 ## Concurrency
 

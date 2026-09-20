@@ -15,18 +15,25 @@ import {
   normalizeWhitelistEmail,
   normalizeWhitelistPhone,
 } from "./whitelist.js";
+import {
+  generateInviteToken,
+  type InviteTokenClaims,
+} from "./invite-token.js";
 
 export const WHITELIST_COLUMNS = [
   "Form ID",
   "Email",
   "Phone",
+  "Invite Token",
   "Notes",
   "Added By",
   "Added At",
   "Status",
 ] as const;
 
-const CACHE_KEY = "registration-whitelist:v1";
+const CACHE_KEY = "registration-whitelist:v2";
+/** Env-bootstrap invite tokens live in Redis (no sheet row). */
+const ENV_INVITE_TTL_S = 90 * 24 * 60 * 60;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export type WhitelistEntrySource = "env" | "sheet";
@@ -39,6 +46,8 @@ export interface AdminWhitelistEntry {
   addedBy?: string;
   addedAt?: string;
   sheetRow?: number;
+  /** Opaque random invite token unique to this entry. */
+  inviteToken?: string;
 }
 
 interface SheetWhitelistRow {
@@ -46,6 +55,7 @@ interface SheetWhitelistRow {
   formId: string;
   email: string;
   phone: string;
+  inviteToken: string;
   notes: string;
   addedBy: string;
   addedAt: string;
@@ -113,6 +123,7 @@ function parseSheetRows(
   const formCol = findHeaderIndex0(headers, "Form ID");
   const emailCol = findHeaderIndex0(headers, "Email");
   const phoneCol = findHeaderIndex0(headers, "Phone");
+  const tokenCol = findHeaderIndex0(headers, "Invite Token");
   const notesCol = findHeaderIndex0(headers, "Notes");
   const addedByCol = findHeaderIndex0(headers, "Added By");
   const addedAtCol = findHeaderIndex0(headers, "Added At");
@@ -126,6 +137,7 @@ function parseSheetRows(
       formId: formCol >= 0 ? cellString(row[formCol]) : "",
       email: emailCol >= 0 ? normalizeWhitelistEmail(cellString(row[emailCol])) : "",
       phone: phoneCol >= 0 ? normalizeWhitelistPhone(cellString(row[phoneCol])) : "",
+      inviteToken: tokenCol >= 0 ? cellString(row[tokenCol]) : "",
       notes: notesCol >= 0 ? cellString(row[notesCol]) : "",
       addedBy: addedByCol >= 0 ? cellString(row[addedByCol]) : "",
       addedAt: addedAtCol >= 0 ? cellString(row[addedAtCol]) : "",
@@ -208,17 +220,74 @@ export async function registrationWhitelistForForm(
   );
 }
 
-function envEntriesForForm(formId: string): AdminWhitelistEntry[] {
+function envInviteIdentityKey(formId: string, kind: "email" | "phone", value: string): string {
+  return `wl-env-invite:${formId}:${kind}:${value}`;
+}
+
+function envInviteTokenKey(token: string): string {
+  return `wl-env-invite-tok:${token}`;
+}
+
+async function getOrCreateEnvInviteToken(
+  formId: string,
+  email: string,
+  phone: string
+): Promise<string> {
+  const identityKey = email
+    ? envInviteIdentityKey(formId, "email", email)
+    : envInviteIdentityKey(formId, "phone", phone);
+  const existing = await redisGet<string>(identityKey);
+  if (typeof existing === "string" && existing.trim()) return existing.trim();
+
+  const token = generateInviteToken();
+  await redisSet(identityKey, token, ENV_INVITE_TTL_S);
+  await redisSet(
+    envInviteTokenKey(token),
+    { formId, email: email || undefined, phone: phone || undefined, source: "env" } satisfies InviteTokenClaims,
+    ENV_INVITE_TTL_S
+  );
+  return token;
+}
+
+async function envEntriesForForm(formId: string): Promise<AdminWhitelistEntry[]> {
   const env = envRegistrationWhitelistForForm(formId);
   if (!env) return [];
   const entries: AdminWhitelistEntry[] = [];
   for (const email of uniqueNormalized(env.emails ?? [], normalizeWhitelistEmail)) {
-    entries.push({ source: "env", email, phone: "" });
+    const inviteToken = await getOrCreateEnvInviteToken(formId, email, "");
+    entries.push({ source: "env", email, phone: "", inviteToken });
   }
   for (const phone of uniqueNormalized(env.phones ?? [], normalizeWhitelistPhone)) {
-    entries.push({ source: "env", email: "", phone });
+    const inviteToken = await getOrCreateEnvInviteToken(formId, "", phone);
+    entries.push({ source: "env", email: "", phone, inviteToken });
   }
   return entries;
+}
+
+/** Backfill missing Invite Token cells for active rows of a form. */
+async function backfillMissingInviteTokens(
+  formId: string,
+  rows: SheetWhitelistRow[]
+): Promise<SheetWhitelistRow[]> {
+  const missing = activeRowsForForm(rows, formId).filter((row) => !row.inviteToken);
+  if (missing.length === 0) return rows;
+
+  const tab = whitelistSheetTab();
+  await withSheetTabLock(getSpreadsheetId(), tab, async () => {
+    await ensureWhitelistTab();
+    const latest = await loadSheetRowsFromSpreadsheet();
+    const repo = createRepository(tab);
+    const { map } = await repo.ensureColumnMap([...WHITELIST_COLUMNS]);
+    for (const row of activeRowsForForm(latest, formId)) {
+      if (row.inviteToken) continue;
+      const token = generateInviteToken();
+      await repo.updateRowCells(row.sheetRow, map, [
+        { key: "Invite Token", value: sanitizeCell(token) },
+      ]);
+    }
+  });
+  await invalidateWhitelistCache();
+  return loadSheetRowsFromSpreadsheet();
 }
 
 function sheetEntriesForForm(
@@ -233,6 +302,7 @@ function sheetEntriesForForm(
     addedBy: row.addedBy || undefined,
     addedAt: row.addedAt || undefined,
     sheetRow: row.sheetRow,
+    inviteToken: row.inviteToken || undefined,
   }));
 }
 
@@ -240,14 +310,61 @@ export async function listRegistrationWhitelist(
   formId: string
 ): Promise<AdminWhitelistEntry[]> {
   const key = formId.trim();
-  const envEntries = envEntriesForForm(key);
+  const envEntries = await envEntriesForForm(key);
   if (!isSheetsApiConfigured()) return envEntries;
   try {
-    const rows = await getCachedSheetRows();
+    let rows = await getCachedSheetRows();
+    rows = await backfillMissingInviteTokens(key, rows);
     return [...envEntries, ...sheetEntriesForForm(rows, key)];
   } catch (err) {
     console.error("[whitelist] Failed to list Registration Whitelist sheet:", err);
     return envEntries;
+  }
+}
+
+/**
+ * Resolve an opaque invite token to the whitelist identity for a form.
+ * Each entry has its own random token (sheet column or Redis for env bootstrap).
+ */
+export async function resolveInviteToken(
+  token: string | null | undefined,
+  formId: string
+): Promise<InviteTokenClaims | null> {
+  const trimmed = token?.trim() ?? "";
+  const form = formId.trim();
+  if (!trimmed || !form || !WHITELIST_REGISTRATION_FORM_IDS.has(form)) return null;
+
+  const fromEnv = await redisGet<InviteTokenClaims>(envInviteTokenKey(trimmed));
+  if (
+    fromEnv &&
+    fromEnv.formId === form &&
+    (fromEnv.email || fromEnv.phone)
+  ) {
+    return {
+      formId: form,
+      email: fromEnv.email,
+      phone: fromEnv.phone,
+      source: "env",
+    };
+  }
+
+  if (!isSheetsApiConfigured()) return null;
+  try {
+    const rows = await getCachedSheetRows();
+    const match = activeRowsForForm(rows, form).find(
+      (row) => row.inviteToken && row.inviteToken === trimmed
+    );
+    if (!match) return null;
+    return {
+      formId: form,
+      email: match.email || undefined,
+      phone: match.phone || undefined,
+      sheetRow: match.sheetRow,
+      source: "sheet",
+    };
+  } catch (err) {
+    console.error("[whitelist] Failed to resolve invite token:", err);
+    return null;
   }
 }
 
@@ -293,34 +410,32 @@ function identityConflict(
   return null;
 }
 
-export function parseWhitelistIdentityInput(input: {
+function parseWhitelistIdentityInput(input: {
   email?: string;
   phone?: string;
   notes?: string;
-}): { email: string; phone: string; notes: string } | { error: string; message: string } {
-  const rawEmail = typeof input.email === "string" ? input.email.trim() : "";
-  const rawPhone = typeof input.phone === "string" ? input.phone.trim() : "";
+}):
+  | { email: string; phone: string; notes: string }
+  | { error: string; message: string } {
+  const emailRaw = typeof input.email === "string" ? input.email.trim() : "";
+  const phoneRaw = typeof input.phone === "string" ? input.phone.trim() : "";
   const rawNotes = typeof input.notes === "string" ? input.notes.trim() : "";
 
-  if (!rawEmail && !rawPhone) {
+  const email = emailRaw ? normalizeWhitelistEmail(emailRaw) : "";
+  const phone = phoneRaw ? normalizeWhitelistPhone(phoneRaw) : "";
+
+  if (!email && !phone) {
     return {
       error: "missing_identity",
-      message: "Enter an email address, a phone number, or both.",
+      message: "Provide an email and/or phone number.",
     };
   }
-
-  let email = "";
-  if (rawEmail) {
-    email = normalizeWhitelistEmail(rawEmail);
-    if (!EMAIL_RE.test(email)) {
-      return { error: "invalid_email", message: "Enter a valid email address." };
-    }
+  if (email && !EMAIL_RE.test(email)) {
+    return { error: "invalid_email", message: "Enter a valid email address." };
   }
-
-  let phone = "";
-  if (rawPhone) {
-    phone = normalizeWhitelistPhone(rawPhone);
-    if (phone.length < 10) {
+  if (phoneRaw) {
+    const digits = phoneRaw.replace(/\D/g, "");
+    if (digits.length < 10) {
       return {
         error: "invalid_phone",
         message: "Enter a phone number with at least 10 digits.",
@@ -358,6 +473,7 @@ export async function addRegistrationWhitelistEntry(input: {
   const now = new Date();
   const addedBy = input.addedBy?.trim() || "admin";
   const addedAt = formatSheetDateTime(now);
+  const inviteToken = generateInviteToken();
   const tab = whitelistSheetTab();
 
   type LockResult =
@@ -382,6 +498,7 @@ export async function addRegistrationWhitelistEntry(input: {
       { key: "Form ID", value: sanitizeCell(formId) },
       { key: "Email", value: sanitizeCell(parsed.email) },
       { key: "Phone", value: sanitizeCell(parsed.phone) },
+      { key: "Invite Token", value: sanitizeCell(inviteToken) },
       { key: "Notes", value: sanitizeCell(parsed.notes) },
       { key: "Added By", value: sanitizeCell(addedBy) },
       { key: "Added At", value: addedAt },
@@ -405,6 +522,7 @@ export async function addRegistrationWhitelistEntry(input: {
       addedBy,
       addedAt,
       sheetRow: locked.sheetRow || undefined,
+      inviteToken,
     },
   };
 }

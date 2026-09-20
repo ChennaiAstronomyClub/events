@@ -212,22 +212,73 @@ export function rowsOverCapacityLimit(
   return sorted.slice(limit).map((e) => e.sheetRow);
 }
 
+/**
+ * Find an active registration row for an email.
+ * Active = not Cancelled, optional formId match, and either:
+ * - no payment columns / unpaid registration, or
+ * - PaymentStatus Paid, or
+ * - PaymentStatus Pending within the seat-hold window
+ * Expired holds and other statuses are ignored. Prefers Paid over Pending; latest row on ties.
+ */
 export function findActiveRowByEmailInData(
   headers: string[],
   rows: unknown[][],
-  email: string
+  email: string,
+  options?: ScanOptions & { nowMs?: number }
 ): number {
   const emailCol = findEmailColumnIndex(headers);
   const statusCol1 = findColumnIndex1(headers, "Status");
   const statusCol = statusCol1 > 0 ? statusCol1 - 1 : -1;
   if (emailCol === -1) return -1;
 
+  const paymentStatusCol = findHeaderIndex0(headers, "PaymentStatus");
+  const requiresPaymentCol = findHeaderIndex0(headers, "RequiresPayment");
+  const formIdCol =
+    options?.formId?.trim() ? findHeaderIndex0(headers, "formId") : -1;
+  const filterFormId = options?.formId?.trim() ?? "";
+  const nowMs = options?.nowMs ?? Date.now();
+
   const target = email.toLowerCase();
+  let bestRow = -1;
+  let bestRank = -1;
+
   for (let i = 0; i < rows.length; i++) {
-    if (statusCol !== -1 && rows[i][statusCol] === "Cancelled") continue;
-    if (String(rows[i][emailCol] ?? "").toLowerCase() === target) return i + 2;
+    const rowValues = rows[i];
+    if (statusCol !== -1 && rowValues[statusCol] === "Cancelled") continue;
+    if (String(rowValues[emailCol] ?? "").toLowerCase() !== target) continue;
+
+    if (formIdCol !== -1 && filterFormId) {
+      const rowFormId = String(rowValues[formIdCol] ?? "").trim();
+      if (rowFormId && rowFormId !== filterFormId) continue;
+    }
+
+    let rank = 2;
+    if (paymentStatusCol !== -1) {
+      const rowRequiresPayment =
+        requiresPaymentCol === -1 || isPaymentRequired(rowValues[requiresPaymentCol]);
+      if (rowRequiresPayment) {
+        const paymentStatus = normalizePaymentStatus(rowValues[paymentStatusCol]);
+        if (paymentStatus === "Paid") {
+          rank = 2;
+        } else if (paymentStatus === "Pending") {
+          const holdStart = holdStartFromRow(headers, rowValues);
+          const holdStillValid =
+            Boolean(holdStart) && nowMs - holdStart!.getTime() < PENDING_SEAT_HOLD_MS;
+          if (!holdStillValid) continue;
+          rank = 1;
+        } else {
+          continue;
+        }
+      }
+    }
+
+    const sheetRow = i + 2;
+    if (rank > bestRank || (rank === bestRank && sheetRow > bestRow)) {
+      bestRank = rank;
+      bestRow = sheetRow;
+    }
   }
-  return -1;
+  return bestRow;
 }
 
 export function findCancelledRowInData(

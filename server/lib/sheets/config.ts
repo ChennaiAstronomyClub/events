@@ -51,6 +51,9 @@ export const REGISTRATION_LIMITS: Record<string, number> = {
  * Form IDs that allow closed/full bypass via env and/or the Registration Whitelist sheet.
  * Keep in sync with FormConfig.allowsRegistrationWhitelist in src/config/forms.ts.
  * Env/sheet entries for other formIds are ignored (server trust boundary).
+ *
+ * Intentional overlap with GUEST_REGISTRATION_FORM_IDS: those events stay public while
+ * seats remain; whitelist invite tokens are how organisers add people after the event is full.
  */
 export const WHITELIST_REGISTRATION_FORM_IDS = new Set([
   "perseids-2026",

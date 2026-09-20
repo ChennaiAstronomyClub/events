@@ -49,9 +49,11 @@ export interface RegistrationCallOptions {
   user?: DiscourseUser | null;
   guestUser?: GuestUser;
   holdToken?: string;
-  /** Optional phone for registration whitelist matching on the server. */
+  /** Opaque whitelist invite token (?invite=). */
+  invite?: string;
+  /** Optional phone for form data / sheet columns. */
   phone?: string;
-  /** Optional email for guest whitelist invite matching (no Discourse session). */
+  /** Optional email for guest flows. */
   email?: string;
 }
 
@@ -111,6 +113,9 @@ async function callRegistrationsApiOnce<T>(
   }
   if (options?.email?.trim()) {
     body = { ...body, email: options.email.trim() };
+  }
+  if (options?.invite?.trim()) {
+    body = { ...body, invite: options.invite.trim() };
   }
 
   const headers: Record<string, string> = {
@@ -178,7 +183,14 @@ async function callRegistrationsApi<T>(
 export async function checkRegistrationWhitelist(
   formId: string,
   options: RegistrationCallOptions
-): Promise<{ success: boolean; allowed?: boolean; error?: string; message?: string }> {
+): Promise<{
+  success: boolean;
+  allowed?: boolean;
+  email?: string;
+  phone?: string;
+  error?: string;
+  message?: string;
+}> {
   return callRegistrationsApiOnce(
     {
       action: "whitelistCheck",
@@ -224,10 +236,13 @@ export function releaseExpiredHold(
 ): void {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12_000);
-  const body = enrichGuestPayload(
+  let body: Record<string, unknown> = enrichGuestPayload(
     withDiscourseUser({ action: "releaseHold", sheetTab, formId: options.formId }, options.user),
     options
   );
+  if (options.invite?.trim()) {
+    body = { ...body, invite: options.invite.trim() };
+  }
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };

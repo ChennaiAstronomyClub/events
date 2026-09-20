@@ -104,12 +104,17 @@ function RegistrationWhitelistPanel() {
 
   const inviteOrigin = typeof window !== "undefined" ? window.location.origin : "";
 
-  function inviteUrl(entry: AdminWhitelistEntry): string {
-    return `${inviteOrigin}${buildWhitelistInvitePath(formId, entry)}`;
+  function inviteUrl(entry: AdminWhitelistEntry): string | null {
+    if (!entry.inviteToken?.trim()) return null;
+    return `${inviteOrigin}${buildWhitelistInvitePath(formId, entry.inviteToken)}`;
   }
 
   async function copyInvite(entry: AdminWhitelistEntry) {
     const url = inviteUrl(entry);
+    if (!url) {
+      setError("Invite token missing for this entry. Reload the whitelist and try again.");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(url);
       const key = entryKey(entry);
@@ -279,8 +284,8 @@ function RegistrationWhitelistPanel() {
           {adding ? "Adding…" : "Add to whitelist"}
         </Button>
         <p className="text-xs text-muted-foreground">
-          Invite links are secret: anyone with the listed email or phone can open
-          the form.
+          Invite links use a secret token (?invite=). Anyone with the link can open
+          the form — treat them like passwords.
         </p>
       </form>
 

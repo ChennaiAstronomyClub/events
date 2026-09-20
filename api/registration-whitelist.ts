@@ -12,6 +12,7 @@ import {
 } from "../server/lib/sheets/registration-whitelist.js";
 import { mapSheetsError } from "../server/lib/sheets/errors.js";
 import { captureServerException } from "../server/lib/sentry.js";
+import { SheetLockError } from "../server/lib/sheets/mutex.js";
 
 /**
  * POST /api/registration-whitelist
@@ -36,7 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       success: false,
       error: "Server configuration missing",
       message:
-        "Configure Google Sheets API: GOOGLE_SHEETS_SPREADSHEET_ID and GOOGLE_SERVICE_ACCOUNT_JSON (or GOOGLE_CLIENT_EMAIL + GOOGLE_PRIVATE_KEY).",
+        "Registration is temporarily unavailable. Please try again in a few minutes.",
     });
   }
 
@@ -92,6 +93,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(400).json({ success: false, error: "Invalid action" });
   } catch (err) {
+    if (err instanceof SheetLockError) {
+      return res.status(503).json({
+        success: false,
+        error: err.code,
+        message: err.message,
+      });
+    }
     const mapped = mapSheetsError(err);
     await captureServerException(err);
     return res.status(mapped.status).json(mapped.body);

@@ -57,20 +57,23 @@ export async function redisDel(key: string): Promise<void> {
   }
 }
 
-/** Returns true if the key was set (lock acquired), false if already held. */
+/**
+ * Returns true if the key was set (lock acquired), false if already held,
+ * missing Redis, or on error. Callers that need a lock must fail closed on false.
+ */
 export async function redisSetNx(
   key: string,
   value: string,
   ttlSeconds: number
 ): Promise<boolean> {
   const redis = getRedisClient();
-  if (!redis) return true; // no Redis → proceed without lock
+  if (!redis) return false;
   try {
     const result = await redis.set(key, value, { nx: true, ex: ttlSeconds });
     return result === "OK";
   } catch (err) {
     console.warn("[redis] SETNX failed:", key, err);
-    return true; // on error → proceed without lock
+    return false;
   }
 }
 

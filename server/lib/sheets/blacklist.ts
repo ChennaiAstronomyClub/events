@@ -30,6 +30,15 @@ export interface BlacklistIndex {
   usernames: string[];
 }
 
+export class BlacklistUnavailableError extends Error {
+  readonly code = "blacklist_unavailable";
+
+  constructor(message = "Registration denylist is temporarily unavailable.") {
+    super(message);
+    this.name = "BlacklistUnavailableError";
+  }
+}
+
 export function normalizeBlacklistUsername(username: string): string {
   return username.trim().toLowerCase();
 }
@@ -108,7 +117,7 @@ function isMissingTabError(err: unknown): boolean {
   );
 }
 
-async function loadBlacklistIndexFromSheet(): Promise<BlacklistIndex | null> {
+async function loadBlacklistIndexFromSheet(): Promise<BlacklistIndex> {
   const tab = blacklistSheetTab();
   try {
     const repo = createRepository(tab);
@@ -117,16 +126,16 @@ async function loadBlacklistIndexFromSheet(): Promise<BlacklistIndex | null> {
   } catch (err) {
     if (isMissingTabError(err)) {
       console.error(
-        `[blacklist] Sheet tab "${tab}" was not found. Allowing registration (fail open).`
+        `[blacklist] Sheet tab "${tab}" was not found. Denying registration (fail closed).`
       );
-      return null;
+    } else {
+      console.error("[blacklist] Failed to read blacklist sheet (fail closed):", err);
     }
-    console.error("[blacklist] Failed to read blacklist sheet (fail open):", err);
-    return null;
+    throw new BlacklistUnavailableError();
   }
 }
 
-async function getBlacklistIndex(): Promise<BlacklistIndex | null> {
+async function getBlacklistIndex(): Promise<BlacklistIndex> {
   const cached = await redisGet<BlacklistIndex>(CACHE_KEY);
   if (
     cached &&
@@ -138,13 +147,14 @@ async function getBlacklistIndex(): Promise<BlacklistIndex | null> {
   }
 
   const index = await loadBlacklistIndexFromSheet();
-  if (!index) return null;
-
   await redisSet(CACHE_KEY, index, BLACKLIST_CACHE_TTL_S);
   return index;
 }
 
-/** True when email, phone, or Discourse username is on the Blacklist tab. */
+/**
+ * True when email, phone, or Discourse username is on the Blacklist tab.
+ * Fail-closed: sheet/Redis read failures throw BlacklistUnavailableError.
+ */
 export async function isIdentityBlacklisted(
   identity: BlacklistIdentity
 ): Promise<boolean> {
@@ -155,6 +165,5 @@ export async function isIdentityBlacklisted(
   if (!hasAny) return false;
 
   const index = await getBlacklistIndex();
-  if (!index) return false;
   return matchesBlacklist(index, identity);
 }

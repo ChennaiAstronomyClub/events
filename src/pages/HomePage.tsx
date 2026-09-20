@@ -7,7 +7,6 @@ import {
   isEventOver,
   type HomeListingSection,
 } from "@/config/forms";
-import { PHONE_FIELD_ID } from "@/config/discourse-fields";
 import { useAuth } from "@/hooks/useAuth";
 import { useRegistrationWhitelistCheck } from "@/hooks/useRegistrationWhitelistCheck";
 import { formatIstDateTime } from "@/lib/datetime";
@@ -22,13 +21,11 @@ import type { FormConfig } from "@/types/forms";
 function EventRegistrationCard({
   form,
   userEmail,
-  userPhone,
   apiKey,
   user,
 }: {
   form: FormConfig;
   userEmail: string | undefined;
-  userPhone: string | undefined;
   apiKey: string | null;
   user: ReturnType<typeof useAuth>["user"];
 }) {
@@ -51,8 +48,6 @@ function EventRegistrationCard({
     formId: form.id,
     apiKey,
     user,
-    email: userEmail,
-    phone: userPhone,
   });
   const canRegisterDespiteClosed =
     isWhitelisted && !eventOver && !isRegistered;
@@ -154,13 +149,11 @@ const HOME_LISTING_SECTIONS: {
 function EventCardsGrid({
   forms,
   userEmail,
-  userPhone,
   apiKey,
   user,
 }: {
   forms: FormConfig[];
   userEmail: string | undefined;
-  userPhone: string | undefined;
   apiKey: string | null;
   user: ReturnType<typeof useAuth>["user"];
 }) {
@@ -171,7 +164,6 @@ function EventCardsGrid({
           key={form.id}
           form={form}
           userEmail={userEmail}
-          userPhone={userPhone}
           apiKey={apiKey}
           user={user}
         />
@@ -193,7 +185,6 @@ export function HomePage() {
   const cancelledFormTitle = routeState?.cancelled;
   const holdExpiredFormTitle = routeState?.holdExpired;
   const paymentConfirmedFormTitle = routeState?.paymentConfirmed;
-  const userPhone = user?.user_fields?.[PHONE_FIELD_ID];
 
   return (
     <div className="space-y-8">
@@ -231,7 +222,6 @@ export function HomePage() {
           <EventCardsGrid
             forms={forms}
             userEmail={user?.email}
-            userPhone={userPhone}
             apiKey={apiKey}
             user={user}
           />

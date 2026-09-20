@@ -2,6 +2,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNotices } from "@/hooks/useNotice";
+import { safeExternalHref } from "@/lib/safe-url";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const DISMISSED_KEY = "cac_dismissed_notices";
@@ -53,9 +54,9 @@ export function NoticeAlert({ formId }: { formId: string }) {
               {notice.title && <AlertTitle>{notice.title}</AlertTitle>}
               <AlertDescription>
                 {notice.message}
-                {notice.linkUrl && (
+                {notice.linkUrl && safeExternalHref(notice.linkUrl) && (
                   <a
-                    href={notice.linkUrl}
+                    href={safeExternalHref(notice.linkUrl)!}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="ml-2 underline"

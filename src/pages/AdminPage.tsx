@@ -50,13 +50,13 @@ export function AdminPage() {
               Calendar invites
             </CardTitle>
             <CardDescription>
-              Email an ICS calendar invite to all or selected confirmed
-              participants for an event.
+              Temporarily disabled — calendar email sending is paused while we
+              redesign this flow (Google Calendar integration coming later).
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button asChild className="w-full sm:w-auto">
-              <Link to="/admin/invites">Send calendar invites</Link>
+            <Button disabled className="w-full sm:w-auto">
+              Send calendar invites (disabled)
             </Button>
           </CardContent>
         </Card>

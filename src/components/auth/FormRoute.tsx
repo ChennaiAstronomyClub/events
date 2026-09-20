@@ -12,7 +12,7 @@ import { FormPage } from "@/pages/FormPage";
 
 /**
  * Guest-allowed forms skip login.
- * Whitelist invite links (?email= / ?phone=) also skip login so recipients can register.
+ * Whitelist invite links (?invite=) also skip login so recipients can register.
  */
 export function FormRoute() {
   const { formId } = useParams<{ formId: string }>();

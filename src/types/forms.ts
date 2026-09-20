@@ -149,9 +149,9 @@ export interface FormConfig {
   /** If true, skip the sheet capacity/availability probe and show the form immediately. */
   skipCapacityCheck?: boolean;
   /**
-   * If true, closed/full registration may still open for identities listed in the
-   * server-only `REGISTRATION_WHITELISTS` env var (never commit real emails/phones).
-   * Shareable guest links: /form/{id}?email=... and/or ?phone=...
+   * If true, closed/full registration may still open for identities on the
+   * Registration Whitelist sheet (and optional `REGISTRATION_WHITELISTS` env).
+   * Shareable guest links use `/form/{id}?invite=<token>` (one token per entry).
    */
   allowsRegistrationWhitelist?: boolean;
 }

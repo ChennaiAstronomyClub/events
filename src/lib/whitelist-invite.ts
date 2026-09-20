@@ -1,40 +1,37 @@
 /**
- * Invite query params for closed-registration whitelist links.
- * Example: /form/perseids-2026?email=person%40test.com
- *          /form/perseids-2026?phone=9xxxxxxxx
- *          /form/perseids-2026?email=person%40test.com&phone=9xxxxxxxx
+ * Opaque invite query param for closed-registration whitelist links.
+ * Example: /form/perseids-2026?invite=<random-per-entry-token>
+ *
+ * Each whitelist entry gets its own random token (stored on the sheet / Redis).
+ * Treat the URL as a secret. Identity (email/phone) comes from the server after
+ * whitelistCheck — the token itself is opaque.
  */
-export const WHITELIST_INVITE_EMAIL_PARAM = "email";
-export const WHITELIST_INVITE_PHONE_PARAM = "phone";
+export const WHITELIST_INVITE_TOKEN_PARAM = "invite";
 
 export interface WhitelistInviteIdentity {
-  email: string | null;
-  phone: string | null;
+  /** Opaque invite token from the shareable link. */
+  invite: string | null;
 }
 
 export function parseWhitelistInviteParams(
   searchParams: URLSearchParams
 ): WhitelistInviteIdentity {
-  const email = searchParams.get(WHITELIST_INVITE_EMAIL_PARAM)?.trim() || null;
-  const phone = searchParams.get(WHITELIST_INVITE_PHONE_PARAM)?.trim() || null;
-  return { email, phone };
+  const invite = searchParams.get(WHITELIST_INVITE_TOKEN_PARAM)?.trim() || null;
+  return { invite };
 }
 
-/** True when at least one invite identity param is present (even if email format is rough). */
+/** True when an invite token param is present (validity is checked on the server). */
 export function hasWhitelistInviteParams(identity: WhitelistInviteIdentity): boolean {
-  return Boolean(identity.email?.trim() || identity.phone?.trim());
+  return Boolean(identity.invite?.trim());
 }
 
 /** Path for a shareable guest invite. Treat the URL as a secret. */
-export function buildWhitelistInvitePath(
-  formId: string,
-  identity: { email?: string | null; phone?: string | null }
-): string {
+export function buildWhitelistInvitePath(formId: string, inviteToken: string): string {
   const params = new URLSearchParams();
-  const email = identity.email?.trim();
-  const phone = identity.phone?.trim();
-  if (email) params.set(WHITELIST_INVITE_EMAIL_PARAM, email);
-  if (phone) params.set(WHITELIST_INVITE_PHONE_PARAM, phone);
+  const token = inviteToken.trim();
+  if (token) params.set(WHITELIST_INVITE_TOKEN_PARAM, token);
   const qs = params.toString();
-  return qs ? `/form/${encodeURIComponent(formId)}?${qs}` : `/form/${encodeURIComponent(formId)}`;
+  return qs
+    ? `/form/${encodeURIComponent(formId)}?${qs}`
+    : `/form/${encodeURIComponent(formId)}`;
 }

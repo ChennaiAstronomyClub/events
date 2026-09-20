@@ -69,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
       })
       .catch(() => {
-        if (cached?.username && cached?.email) return;
+        // Never keep a cached user (incl. spoofable admin) when Discourse refresh fails.
         storage.clearAll();
         setSentryUser(null);
         setState({

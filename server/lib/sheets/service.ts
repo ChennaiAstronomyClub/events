@@ -16,10 +16,18 @@ import {
 } from "./logic.js";
 import { matchesRegistrationWhitelist } from "./whitelist.js";
 import { registrationWhitelistForForm } from "./registration-whitelist.js";
-import { isIdentityBlacklisted } from "./blacklist.js";
+import {
+  BlacklistUnavailableError,
+  isIdentityBlacklisted,
+} from "./blacklist.js";
 import { createRepository, type SheetRepository } from "./repository.js";
 import { getSpreadsheetId } from "./client.js";
 import { withSheetTabLock } from "./mutex.js";
+import {
+  isAllowedSubmitKey,
+  isAllowedUpdateKey,
+} from "./form-write-keys.js";
+import { resolveInviteToken } from "./registration-whitelist.js";
 import {
   getHoldCache,
   invalidateHoldCache,
@@ -85,13 +93,16 @@ async function isCapacityBypassed(
 ): Promise<boolean> {
   const formId = typeof body.formId === "string" ? body.formId.trim() : "";
   if (!formId) return false;
+  // Guests: opaque invite token is the capability (not raw email/phone knowledge).
+  if (user.memberType === "guest") {
+    const invite =
+      typeof body.invite === "string" ? body.invite.trim() : "";
+    return Boolean(await resolveInviteToken(invite, formId));
+  }
   // Authenticated users: trust Discourse email only — never client-supplied phone.
-  // Guest invite links: phone from the invite/form may authorize when email is not listed.
-  const phone =
-    user.memberType === "guest" ? phoneFromBody(body) : null;
   return matchesRegistrationWhitelist(await registrationWhitelistForForm(formId), {
     email: user.email,
-    phone,
+    phone: null,
   });
 }
 
@@ -142,9 +153,10 @@ function registrationFullResponse(): Record<string, unknown> {
   };
 }
 
-const BLACKLISTED_RESPONSE = {
+/** Generic denial — same shape whether denylisted or denylist unavailable (no oracle). */
+const GENERIC_REGISTRATION_DENIAL = {
   success: false,
-  error: "blacklisted",
+  error: "unavailable",
   message:
     "We can't complete this registration. Please email us using the contact page on our website.",
 } as const;
@@ -153,13 +165,20 @@ async function denyIfBlacklisted(
   user: RegistrationUser,
   body: Record<string, unknown>
 ): Promise<Record<string, unknown> | null> {
-  const listed = await isIdentityBlacklisted({
-    email: user.email,
-    username: user.username,
-    phone: phoneFromBody(body),
-  });
-  if (!listed) return null;
-  return { ...BLACKLISTED_RESPONSE };
+  try {
+    const listed = await isIdentityBlacklisted({
+      email: user.email,
+      username: user.username,
+      phone: phoneFromBody(body),
+    });
+    if (!listed) return null;
+    return { ...GENERIC_REGISTRATION_DENIAL };
+  } catch (err) {
+    if (err instanceof BlacklistUnavailableError) {
+      return { ...GENERIC_REGISTRATION_DENIAL };
+    }
+    throw err;
+  }
 }
 
 /** Read sheet, expire stale holds in one batch, re-read if anything expired. */
@@ -261,7 +280,10 @@ async function reconcileReserveAppend(
   const scan = scanRegistrations(fresh.headers, fresh.rows, now.getTime(), opts);
   let ourRow = appendedRow;
   if (ourRow <= 0) {
-    ourRow = findActiveRowByEmailInData(fresh.headers, fresh.rows, email);
+    ourRow = findActiveRowByEmailInData(fresh.headers, fresh.rows, email, {
+      ...opts,
+      nowMs: now.getTime(),
+    });
   }
 
   const entries = listActiveRegistrationEntries(
@@ -411,7 +433,10 @@ async function handleReserveWork(
 
   const preData = await repo.readSheetData();
   const preScan = scanRegistrations(preData.headers, preData.rows, now.getTime(), opts);
-  const preActiveRow = findActiveRowByEmailInData(preData.headers, preData.rows, email);
+  const preActiveRow = findActiveRowByEmailInData(preData.headers, preData.rows, email, {
+    ...opts,
+    nowMs: now.getTime(),
+  });
   const bypassCapacity = await isCapacityBypassed(body, user);
 
   if (preActiveRow <= 0 && !bypassCapacity && isAtCapacity(preScan, limit)) {
@@ -444,7 +469,10 @@ async function handleReserveWork(
 
     let activeRow = dup.keepRow;
     if (activeRow <= 0) {
-      activeRow = findActiveRowByEmailInData(sheetData.headers, sheetData.rows, email);
+      activeRow = findActiveRowByEmailInData(sheetData.headers, sheetData.rows, email, {
+        ...opts,
+        nowMs: now.getTime(),
+      });
     }
 
     if (activeRow > 0) {
@@ -492,14 +520,18 @@ async function handleReserveWork(
 
 async function handleReleaseHold(
   sheetTab: string,
-  user: RegistrationUser
+  user: RegistrationUser,
+  body: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
   return withSheetTabLock(getSpreadsheetId(), sheetTab, async () => {
     const repo = createRepository(sheetTab);
     const email = user.email;
     const now = new Date();
     const data = await repo.readSheetData();
-    const activeRow = findActiveRowByEmailInData(data.headers, data.rows, email);
+    const activeRow = findActiveRowByEmailInData(data.headers, data.rows, email, {
+      ...scanOpts(body),
+      nowMs: now.getTime(),
+    });
     if (activeRow < 0) return { success: true };
 
     const paymentStatusCol = findHeaderIndex0(data.headers, "PaymentStatus");
@@ -521,12 +553,16 @@ async function handleReleaseHold(
 
 async function handleCancel(
   sheetTab: string,
-  user: RegistrationUser
+  user: RegistrationUser,
+  body: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
   return withSheetTabLock(getSpreadsheetId(), sheetTab, async () => {
     const repo = createRepository(sheetTab);
     const data = await repo.readSheetData();
-    const rowIndex = findActiveRowByEmailInData(data.headers, data.rows, user.email);
+    const rowIndex = findActiveRowByEmailInData(data.headers, data.rows, user.email, {
+      ...scanOpts(body),
+      nowMs: Date.now(),
+    });
     if (rowIndex < 0) {
       return { success: false, error: "Registration not found" };
     }
@@ -568,19 +604,24 @@ async function handleUpdate(
   return withSheetTabLock(getSpreadsheetId(), sheetTab, async () => {
     const repo = createRepository(sheetTab);
     const data = await repo.readSheetData();
-    const rowIndex = findActiveRowByEmailInData(data.headers, data.rows, user.email);
+    const rowIndex = findActiveRowByEmailInData(data.headers, data.rows, user.email, {
+      ...scanOpts(body),
+      nowMs: Date.now(),
+    });
     if (rowIndex < 0) {
       return { success: false, error: "Registration not found" };
     }
 
     const allowedUpdates = Object.entries(updates as Record<string, unknown>).filter(
-      ([key]) => !PROTECTED_UPDATE_KEYS.has(key.trim().toLowerCase())
+      ([key]) =>
+        isAllowedUpdateKey(key) && !PROTECTED_UPDATE_KEYS.has(key.trim().toLowerCase())
     );
     if (allowedUpdates.length === 0) {
       return { success: false, error: "No updatable fields" };
     }
 
-    const updateKeys = allowedUpdates.map(([key]) => key);
+    // Only ensure known form-field columns — never invent headers from junk keys.
+    const updateKeys = allowedUpdates.map(([key]) => key.trim());
     const colNames = [...updateKeys, "UpdatedAt"];
     const { map: colMap } = await repo.ensureColumnMap(colNames, data);
     const extras: Array<{ key: string; value: unknown }> = [];
@@ -607,22 +648,14 @@ async function handleSubmit(
   const windowDenied = await denyNewRegistrationIfWindowClosed(body, user);
   if (windowDenied) return windowDenied;
 
-  const exclude = new Set([
-    "secret",
-    "sheetTab",
-    "action",
-    "reserveFields",
-    "formData",
-    "updates",
-  ]);
   const keys = ["Timestamp"];
   const values: unknown[] = [new Date()];
 
   for (const key of Object.keys(body)) {
-    if (!exclude.has(key)) {
-      keys.push(sanitizeCell(key) as string);
-      values.push(sanitizeCell(body[key]));
-    }
+    if (!isAllowedSubmitKey(key)) continue;
+    if (key === "Timestamp") continue;
+    keys.push(sanitizeCell(key) as string);
+    values.push(sanitizeCell(body[key]));
   }
 
   return withSheetTabLock(getSpreadsheetId(), sheetTab, async () => {
@@ -720,7 +753,13 @@ async function handleSubmit(
       };
     }
 
-    if (email && findActiveRowByEmailInData(sheetData.headers, sheetData.rows, email) > 0) {
+    if (
+      email &&
+      findActiveRowByEmailInData(sheetData.headers, sheetData.rows, email, {
+        ...scanOpts(body),
+        nowMs: now.getTime(),
+      }) > 0
+    ) {
       return {
         success: false,
         error: "duplicate",
@@ -803,9 +842,60 @@ async function handleSubmit(
       { key: "PaidAt", value: paidNow }
     );
     const appendedRow = await repo.appendRow(colMap, appendFields);
+    if (
+      typeof limit === "number" &&
+      !(await isCapacityBypassed(body, user))
+    ) {
+      const reconciled = await reconcileUnpaidSubmitAppend(
+        repo,
+        sheetTab,
+        email,
+        appendedRow,
+        limit,
+        now,
+        scanOpts(body)
+      );
+      if (!reconciled.success) return reconciled;
+    }
     await invalidateRegistrationCaches(sheetTab, email);
     return { success: true, row: appendedRow };
   });
+}
+
+/** After unpaid submit append, soft-expire our row if we lost the capacity race. */
+async function reconcileUnpaidSubmitAppend(
+  repo: SheetRepository,
+  sheetTab: string,
+  email: string,
+  appendedRow: number,
+  limit: number,
+  now: Date,
+  opts?: ScanOptions
+): Promise<Record<string, unknown>> {
+  const fresh = await repo.readSheetData();
+  let ourRow = appendedRow;
+  if (ourRow <= 0) {
+    ourRow = findActiveRowByEmailInData(fresh.headers, fresh.rows, email, {
+      ...opts,
+      nowMs: now.getTime(),
+    });
+  }
+
+  const entries = listActiveRegistrationEntries(
+    fresh.headers,
+    fresh.rows,
+    now.getTime(),
+    opts
+  );
+  const losers = rowsOverCapacityLimit(entries, limit);
+
+  if (ourRow > 0 && losers.includes(ourRow)) {
+    await repo.applyExpiredRows([ourRow], fresh.headers, now);
+    await invalidateRegistrationCaches(sheetTab, email);
+    return registrationFullResponse();
+  }
+
+  return { success: true, row: ourRow > 0 ? ourRow : appendedRow };
 }
 
 export async function dispatchRegistration(
@@ -823,9 +913,9 @@ export async function dispatchRegistration(
     case "reserve":
       return handleReserve(sheetTab, user, body);
     case "releaseHold":
-      return handleReleaseHold(sheetTab, user);
+      return handleReleaseHold(sheetTab, user, body);
     case "cancel":
-      return handleCancel(sheetTab, user);
+      return handleCancel(sheetTab, user, body);
     case "update":
       return handleUpdate(sheetTab, user, body);
     case "submit":

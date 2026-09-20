@@ -19,6 +19,7 @@ import {
   registrationErrorMessage,
   CONTACT_PAGE_URL,
 } from "@/lib/registration-errors";
+import { safeExternalHref } from "@/lib/safe-url";
 import { storage } from "@/lib/storage";
 import { clearHoldToken, getHoldToken, setHoldToken } from "@/lib/guest-hold-token";
 import {
@@ -92,22 +93,11 @@ export function FormPage() {
   const [submissionRev, setSubmissionRev] = useState(0);
   const [backfillSubmitting, setBackfillSubmitting] = useState(false);
   const [backfillError, setBackfillError] = useState<string | null>(null);
-  const [guestEmail, setGuestEmail] = useState<string | null>(() => {
-    const email = inviteIdentity.email?.trim();
-    return email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
-  });
-  const [guestPhone, setGuestPhone] = useState<string | null>(() => {
-    const phone = inviteIdentity.phone?.trim();
-    if (!phone) return null;
-    return phone.replace(/\D/g, "").length >= 10 ? phone : null;
-  });
+  const [guestEmail, setGuestEmail] = useState<string | null>(null);
+  const [guestPhone, setGuestPhone] = useState<string | null>(null);
   const [continuingAsGuest, setContinuingAsGuest] = useState(() => isWhitelistInviteGuest);
-  const [emailGateDraft, setEmailGateDraft] = useState(
-    () => inviteIdentity.email?.trim() ?? ""
-  );
-  const [phoneGateDraft, setPhoneGateDraft] = useState(
-    () => inviteIdentity.phone?.trim() ?? ""
-  );
+  const [emailGateDraft, setEmailGateDraft] = useState("");
+  const [phoneGateDraft, setPhoneGateDraft] = useState("");
   const [emailGateError, setEmailGateError] = useState<string | null>(null);
 
   // Check if this user already submitted this form (client-side quick check)
@@ -204,9 +194,6 @@ export function FormPage() {
   }
 
   const regStatus = config ? getRegistrationStatus(config) : "open";
-  const identityPhone =
-    user?.user_fields?.[PHONE_FIELD_ID] ?? guestPhone ?? inviteIdentity.phone ?? null;
-  const identityEmail = user?.email ?? guestEmail ?? inviteIdentity.email ?? null;
   const needsWhitelistCheck = Boolean(
     config?.allowsRegistrationWhitelist &&
       regStatus !== "open" &&
@@ -215,15 +202,31 @@ export function FormPage() {
       !alreadySubmitted &&
       ((user && apiKey) || hasInvite)
   );
-  const { status: whitelistStatus, allowed: isWhitelisted } =
+  const { status: whitelistStatus, allowed: isWhitelisted, email: inviteEmail, phone: invitePhone } =
     useRegistrationWhitelistCheck({
-      enabled: needsWhitelistCheck,
+      enabled: needsWhitelistCheck || isWhitelistInviteGuest,
       formId: config?.id,
       apiKey,
       user,
-      email: identityEmail,
-      phone: identityPhone,
+      invite: inviteIdentity.invite,
     });
+
+  // Prefill guest identity from the server once the invite token resolves.
+  useEffect(() => {
+    if (!isWhitelistInviteGuest || whitelistStatus !== "allowed") return;
+    if (inviteEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail)) {
+      setGuestEmail(inviteEmail);
+      setEmailGateDraft(inviteEmail);
+    }
+    if (invitePhone && invitePhone.replace(/\D/g, "").length >= 10) {
+      setGuestPhone(invitePhone);
+      setPhoneGateDraft(invitePhone);
+    }
+  }, [isWhitelistInviteGuest, whitelistStatus, inviteEmail, invitePhone]);
+
+  const identityPhone =
+    user?.user_fields?.[PHONE_FIELD_ID] ?? guestPhone ?? invitePhone ?? null;
+  const identityEmail = user?.email ?? guestEmail ?? inviteEmail ?? null;
   const registrationAllowed =
     regStatus === "open" ||
     Boolean(isWhitelisted && config && !isEventOver(config));
@@ -253,6 +256,9 @@ export function FormPage() {
     config?.verifiedSuccess &&
       (requiresPayment || isVerifiedUser(user?.groups ?? []) || isGuestMode)
   );
+  const verifiedSuccessHref = showVerifiedSuccess
+    ? safeExternalHref(config?.verifiedSuccess?.linkUrl)
+    : null;
 
   const { expired: holdExpired, formatted: holdCountdown } = useHoldCountdown(
     requiresPayment ? capacityCheck.holdExpiresAt : null
@@ -310,6 +316,7 @@ export function FormPage() {
         releaseExpiredHold(config.sheetTab, {
           formId: config.id,
           holdToken,
+          invite: inviteIdentity.invite ?? undefined,
         });
         clearHoldToken(config.id);
       }
@@ -322,7 +329,16 @@ export function FormPage() {
       });
     }
     navigate("/", { state: { holdExpired: config.title }, replace: true });
-  }, [holdExpired, requiresPayment, config, apiKey, user, isGuestMode, navigate]);
+  }, [
+    holdExpired,
+    requiresPayment,
+    config,
+    apiKey,
+    user,
+    isGuestMode,
+    navigate,
+    inviteIdentity.invite,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -479,6 +495,7 @@ export function FormPage() {
         isGuestMode && guestEmail ? { email: guestEmail } : undefined,
       phone: identityPhone ?? undefined,
       email: !user ? identityEmail ?? undefined : undefined,
+      invite: inviteIdentity.invite ?? undefined,
     };
 
     const checkPromise = needsPayment
@@ -522,6 +539,7 @@ export function FormPage() {
     shouldCheckCapacity,
     checkAttempt,
     triggerAutoRetry,
+    inviteIdentity.invite,
   ]);
 
   const canShowRegistrationForm = isBackfillForm
@@ -610,6 +628,56 @@ export function FormPage() {
     registrationAllowed &&
     !isBackfillForm;
 
+  // Invite guests: wait for token resolve before any identity fields are editable.
+  const invitePending =
+    isWhitelistInviteGuest &&
+    (whitelistStatus === "idle" || whitelistStatus === "checking");
+
+  if (invitePending) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Loading Invite</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Fetching your invite details for {config.title}…
+            </p>
+            <Button asChild variant="outline" className="w-full">
+              <Link to="/">Back to Home</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (
+    isWhitelistInviteGuest &&
+    (whitelistStatus === "denied" || whitelistStatus === "error")
+  ) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Invite Not Valid</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {whitelistStatus === "error"
+                ? "Could not verify this invite. Please try again shortly."
+                : "This invite link is not authorized for registration."}
+            </p>
+            <Button asChild variant="outline" className="w-full">
+              <Link to="/">Back to Home</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (showAuthChoice) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -638,7 +706,8 @@ export function FormPage() {
   }
 
   if (showEmailGate) {
-    const invitePhoneLocked = Boolean(inviteIdentity.phone?.trim());
+    const inviteEmailLocked = Boolean(inviteEmail?.trim());
+    const invitePhoneLocked = Boolean(invitePhone?.trim());
     return (
       <div className="flex items-center justify-center py-12">
         <Card className="w-full max-w-md">
@@ -662,6 +731,8 @@ export function FormPage() {
                 type="email"
                 autoComplete="email"
                 value={emailGateDraft}
+                readOnly={inviteEmailLocked}
+                disabled={inviteEmailLocked}
                 onChange={(e) => setEmailGateDraft(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleEmailGateContinue();
@@ -678,6 +749,7 @@ export function FormPage() {
                   autoComplete="tel"
                   value={phoneGateDraft}
                   readOnly={invitePhoneLocked}
+                  disabled={invitePhoneLocked}
                   onChange={(e) => setPhoneGateDraft(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleEmailGateContinue();
@@ -897,10 +969,10 @@ export function FormPage() {
                 {showVerifiedSuccess && config.verifiedSuccess && (
                   <div className="rounded-lg border bg-green-50 p-4 space-y-3">
                     <p className="text-sm text-green-900">{config.verifiedSuccess.message}</p>
-                    {config.verifiedSuccess.linkUrl && (
+                    {verifiedSuccessHref && (
                       <Button asChild className="w-full">
                         <a
-                          href={config.verifiedSuccess.linkUrl}
+                          href={verifiedSuccessHref}
                           target="_blank"
                           rel="noopener noreferrer"
                         >
@@ -1096,10 +1168,11 @@ export function FormPage() {
         requiresPayment: Boolean(config!.requiresPayment),
         guestUser: { email: guestEmail },
         holdToken,
+        invite: inviteIdentity.invite ?? undefined,
         phone:
           (typeof data.phone === "string" && data.phone.trim()) ||
           guestPhone ||
-          inviteIdentity.phone ||
+          invitePhone ||
           undefined,
       });
 
@@ -1237,8 +1310,8 @@ export function FormPage() {
           isGuestMode
             ? {
                 ...(guestEmail ? { email: guestEmail } : {}),
-                ...(guestPhone || inviteIdentity.phone
-                  ? { phone: guestPhone ?? inviteIdentity.phone ?? "" }
+                ...(guestPhone || invitePhone
+                  ? { phone: guestPhone ?? invitePhone ?? "" }
                   : {}),
               }
             : undefined
@@ -1250,13 +1323,13 @@ export function FormPage() {
             // Lock email when it came from the invite link or the open-guest email gate.
             if (
               !isWhitelistInviteGuest ||
-              (inviteIdentity.email &&
-                guestEmail.toLowerCase() === inviteIdentity.email.toLowerCase())
+              (inviteEmail &&
+                guestEmail.toLowerCase() === inviteEmail.toLowerCase())
             ) {
               fields.push("email");
             }
           }
-          if (guestPhone || inviteIdentity.phone) fields.push("phone");
+          if (guestPhone || invitePhone) fields.push("phone");
           return fields.length > 0 ? fields : undefined;
         })()}
         onSubmit={handleSubmit}

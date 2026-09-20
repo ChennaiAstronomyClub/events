@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import type { VerifiedSuccessInfo } from "@/types/forms";
+import { safeExternalHref } from "@/lib/safe-url";
 import {
   Card,
   CardContent,
@@ -19,6 +20,7 @@ export function SuccessPage() {
   const location = useLocation();
   const { formTitle, verifiedSuccess, backfillComplete } =
     (location.state as SuccessState) || {};
+  const successHref = safeExternalHref(verifiedSuccess?.linkUrl);
 
   return (
     <div className="flex items-center justify-center py-12">
@@ -37,9 +39,9 @@ export function SuccessPage() {
           {verifiedSuccess && (
             <div className="rounded-lg border bg-green-50 p-4 space-y-3">
               <p className="text-sm text-green-900">{verifiedSuccess.message}</p>
-              {verifiedSuccess.linkUrl && (
+              {successHref && (
                 <Button asChild className="w-full">
-                  <a href={verifiedSuccess.linkUrl} target="_blank" rel="noopener noreferrer">
+                  <a href={successHref} target="_blank" rel="noopener noreferrer">
                     {verifiedSuccess.linkLabel || "Open Link"}
                   </a>
                 </Button>

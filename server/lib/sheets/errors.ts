@@ -18,10 +18,13 @@ export interface SheetsApiErrorResponse {
 }
 
 export function mapSheetsError(err: unknown): SheetsApiErrorResponse {
+  const genericMessage =
+    "Registration is temporarily unavailable. Please try again in a few minutes.";
+
   if (err instanceof SheetsConfigError) {
     return {
       status: 500,
-      body: { success: false, error: err.code, message: err.message },
+      body: { success: false, error: err.code, message: genericMessage },
     };
   }
 
@@ -38,8 +41,7 @@ export function mapSheetsError(err: unknown): SheetsApiErrorResponse {
       body: {
         success: false,
         error: "sheets_auth_error",
-        message:
-          "Google Sheets credentials are invalid. Check GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_PRIVATE_KEY in server environment variables.",
+        message: genericMessage,
       },
     };
   }
@@ -50,8 +52,7 @@ export function mapSheetsError(err: unknown): SheetsApiErrorResponse {
       body: {
         success: false,
         error: "sheets_not_found",
-        message:
-          "Spreadsheet not found. Check GOOGLE_SHEETS_SPREADSHEET_ID and that the sheet is shared with the service account.",
+        message: genericMessage,
       },
     };
   }
@@ -66,8 +67,7 @@ export function mapSheetsError(err: unknown): SheetsApiErrorResponse {
       body: {
         success: false,
         error: "sheets_permission",
-        message:
-          "The service account cannot edit this spreadsheet. Share the sheet with the service account email as Editor.",
+        message: genericMessage,
       },
     };
   }
@@ -80,8 +80,7 @@ export function mapSheetsError(err: unknown): SheetsApiErrorResponse {
         body: {
           success: false,
           error: "sheets_permission",
-          message:
-            "The service account cannot access this spreadsheet. Share the sheet with the service account email as Editor.",
+          message: genericMessage,
         },
       };
     }
@@ -91,7 +90,7 @@ export function mapSheetsError(err: unknown): SheetsApiErrorResponse {
         body: {
           success: false,
           error: "sheets_not_found",
-          message: "Spreadsheet or sheet tab not found. Check GOOGLE_SHEETS_SPREADSHEET_ID.",
+          message: genericMessage,
         },
       };
     }
@@ -102,8 +101,7 @@ export function mapSheetsError(err: unknown): SheetsApiErrorResponse {
     body: {
       success: false,
       error: "sheets_api_error",
-      message:
-        "Could not reach the registration spreadsheet. Please try again in a moment.",
+      message: genericMessage,
     },
   };
 }

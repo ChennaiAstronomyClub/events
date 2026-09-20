@@ -2,6 +2,7 @@ export type RegistrationErrorCode =
   | "full"
   | "duplicate"
   | "blacklisted"
+  | "unavailable"
   | "hold_expired"
   | "hold_required"
   | "registration_not_open"
@@ -17,7 +18,7 @@ const BLACKLISTED_MESSAGE =
 
 /** Safe to retry — idempotent reads/reserve refresh. */
 export function isRetriableError(error?: string): boolean {
-  return error === "timeout";
+  return error === "timeout" || error === "sheet_lock_unavailable";
 }
 
 export function isHoldExpiredError(error?: string): boolean {
@@ -29,14 +30,16 @@ export function isHoldRequiredError(error?: string): boolean {
 }
 
 export function isBlacklistedError(error?: string): boolean {
-  return error === "blacklisted";
+  return error === "blacklisted" || error === "unavailable";
 }
 
 export function registrationErrorMessage(
   error?: string,
   message?: string | null
 ): string {
-  if (error === "blacklisted") return message?.trim() || BLACKLISTED_MESSAGE;
+  if (error === "blacklisted" || error === "unavailable") {
+    return message?.trim() || BLACKLISTED_MESSAGE;
+  }
   if (message) return message;
   switch (error) {
     case "hold_expired":
@@ -55,6 +58,7 @@ export function registrationErrorMessage(
       return "The request timed out. Please check your connection and try again.";
     case "missing_discourse_user":
       return "Your session could not be verified. Please log out, log in again, and retry.";
+    case "sheet_lock_unavailable":
     case "sheets_config_error":
     case "sheets_auth_error":
     case "sheets_permission":

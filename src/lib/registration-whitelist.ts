@@ -1,5 +1,4 @@
 import { storage } from "@/lib/storage";
-import type { WhitelistInviteIdentity } from "@/lib/whitelist-invite";
 
 export type WhitelistEntrySource = "env" | "sheet";
 
@@ -11,6 +10,8 @@ export interface AdminWhitelistEntry {
   addedBy?: string;
   addedAt?: string;
   sheetRow?: number;
+  /** Per-entry random invite token (required to copy invite links). */
+  inviteToken?: string;
 }
 
 interface WhitelistListResponse {
@@ -59,7 +60,7 @@ export async function fetchRegistrationWhitelist(
 
 export async function addRegistrationWhitelistEntry(
   formId: string,
-  identity: WhitelistInviteIdentity & { notes?: string }
+  identity: { email?: string | null; phone?: string | null; notes?: string }
 ): Promise<WhitelistAddResponse> {
   const res = await fetch("/api/registration-whitelist", {
     method: "POST",
