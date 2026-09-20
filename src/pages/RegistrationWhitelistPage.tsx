@@ -210,7 +210,7 @@ function RegistrationWhitelistPanel() {
         </Button>
       </div>
 
-      <div className="sticky top-0 z-10 -mx-4 space-y-3 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:mx-0 sm:rounded-lg sm:border sm:px-4">
+      <div className="sticky top-0 z-10 -mx-4 space-y-3 border-b bg-card/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-card/80 sm:mx-0 sm:rounded-lg sm:border sm:px-4">
         <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
           <Select value={formId} onValueChange={handleFormChange}>
             <SelectTrigger className="h-11 w-full text-base">
@@ -244,7 +244,7 @@ function RegistrationWhitelistPanel() {
         ) : null}
       </div>
 
-      <form onSubmit={(event) => void handleAdd(event)} className="space-y-3 rounded-lg border p-4">
+      <form onSubmit={(event) => void handleAdd(event)} className="space-y-3 rounded-lg border bg-card p-4">
         <p className="text-sm font-medium">Add a person</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -314,7 +314,7 @@ function RegistrationWhitelistPanel() {
             return (
               <li
                 key={key}
-                className="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-3 rounded-lg border bg-card p-3 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="min-w-0 space-y-1">
                   <p className="font-medium break-all">{whitelistIdentityLabel(entry)}</p>

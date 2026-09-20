@@ -281,7 +281,7 @@ function AttendanceCheckIn() {
         </Button>
       </div>
 
-      <div className="sticky top-0 z-10 -mx-4 space-y-2 border-b bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:mx-0 sm:space-y-3 sm:rounded-lg sm:border sm:px-4 sm:py-3">
+      <div className="sticky top-0 z-10 -mx-4 space-y-2 border-b bg-card/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-card/80 sm:mx-0 sm:space-y-3 sm:rounded-lg sm:border sm:px-4 sm:py-3">
         <div className="flex gap-2">
           <Select value={formId} onValueChange={handleFormChange}>
             <SelectTrigger className="h-10 min-w-0 flex-1 text-sm sm:h-11 sm:text-base">

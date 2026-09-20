@@ -43,7 +43,7 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
                 href="https://forum.chennaiastronomyclub.org/signup"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium border border-input rounded-md hover:bg-accent hover:text-accent-foreground mb-4" 
+                className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium border border-input rounded-md bg-card hover:bg-accent hover:text-accent-foreground mb-4" 
               >
                 Join Our Forum
               </a>

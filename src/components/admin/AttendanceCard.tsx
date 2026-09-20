@@ -245,7 +245,7 @@ function PartialForm({
   onCancel: () => void;
 }) {
   return (
-    <div className="space-y-3 rounded-lg border p-3">
+    <div className="space-y-3 rounded-lg border bg-card p-3">
       <p className="text-sm font-medium">Partial check-in</p>
       <CountStepper
         label="Adults (incl. registrant)"
