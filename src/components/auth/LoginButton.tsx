@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useState, type ButtonHTMLAttributes } from "react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -8,9 +8,8 @@ export function LoginButton({
   style,
   label = "Login with CAC Forum",
   unstyled = false,
-}: {
-  className?: string;
-  style?: CSSProperties;
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
   label?: string;
   unstyled?: boolean;
 }) {
@@ -31,6 +30,7 @@ export function LoginButton({
         disabled={pending}
         className={cn(className)}
         style={style}
+        {...rest}
       >
         {text}
       </button>

@@ -2,16 +2,51 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function () {
+        function cookieTheme() {
+          var match = document.cookie.match(/(?:^|; )cac-theme=(light|dark)/);
+          return match ? match[1] : null;
+        }
+        var stored = cookieTheme();
+        if (!stored) {
+          try {
+            stored = localStorage.getItem("cac-theme");
+          } catch (e) {
+            stored = null;
+          }
+        }
+        var theme =
+          stored === "light" || stored === "dark"
+            ? stored
+            : window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+        document.documentElement.classList.remove("dark", "light");
+        document.documentElement.classList.add(theme);
+      })();
+    </script>
     <link rel="icon" href="https://chennaiastronomyclub.org/favicon.ico" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap"
       rel="stylesheet"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Register for Chennai Astronomy Club events." />
     <title>Events - Chennai Astronomy Club</title>
+    <style>
+      cac-header { display: block; min-height: 64px; }
+      cac-footer { display: block; }
+    </style>
+    <script type="module">
+      const url = import.meta.env.VITE_CAC_CHROME_URL
+        || (import.meta.env.DEV
+          ? "/chrome/cac-chrome.js"
+          : "https://chennaiastronomyclub.org/chrome/cac-chrome.js");
+      import(/* @vite-ignore */ url).catch(() => {});
+    </script>
   </head>
   <body>
     <div id="root"></div>
