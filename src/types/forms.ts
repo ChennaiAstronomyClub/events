@@ -37,6 +37,8 @@ export interface FormFieldConfig {
   verifiedReadOnly?: boolean;
   /** If true, field is completely hidden for verified users */
   skipForVerified?: boolean;
+  /** If true, field is shown only to verified users (e.g. payment for regulars) */
+  onlyForVerified?: boolean;
   /** If true, offer to save this field back to the user's Discourse profile on submit */
   saveToProfile?: boolean;
   /** If true, field is used only for UI flow control and is not submitted */
@@ -75,6 +77,11 @@ export interface PaymentPricing {
   bringingYesValue?: string;
   /** Registrant counts as one paying adult. Default true. */
   includeRegistrant?: boolean;
+  /**
+   * Line under the live total. Defaults to “Kids under 12 are free.”
+   * Set when children are not free (for example, rate not yet confirmed).
+   */
+  amountNote?: string;
 }
 
 export interface FormConfig {
@@ -140,6 +147,11 @@ export interface FormConfig {
   submitLabel?: string;
   /** Shown to verified users on the success page after submission */
   verifiedSuccess?: VerifiedSuccessInfo;
+  /**
+   * Shown to non-verified users after submission when the form does not
+   * require payment (shortlist queue, place not confirmed).
+   */
+  shortlistSuccess?: VerifiedSuccessInfo;
   /** If true, form is excluded from HomePage and AdminPage listings. Still reachable by direct URL. */
   hiddenFromListing?: boolean;
   /** If true, submit patches the user's existing sheet row instead of appending a new one. */

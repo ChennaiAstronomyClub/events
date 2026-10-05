@@ -10,6 +10,11 @@ export interface FormRegistrationWindow {
 }
 
 export const FORM_REGISTRATION_WINDOWS: Record<string, FormRegistrationWindow> = {
+  "star-party-october-2026": {
+    registrationClosesAt: "2026-10-06T17:00:00",
+    startTime: "2026-10-10T13:00:00",
+    endTime: "2026-10-11T11:00:00",
+  },
   "city-meetup-september-27": {
     registrationOpensAt: "2026-09-18T09:00:00",
     registrationClosesAt: "2026-09-27T18:00:00",

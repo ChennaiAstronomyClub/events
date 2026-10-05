@@ -1,4 +1,4 @@
-import type { FormConfig } from "@/types/forms";
+import type { FormConfig, VerifiedSuccessInfo } from "@/types/forms";
 import { parseIstDateTime } from "@/lib/datetime";
 import {
   getRegistrationStatus as getWindowRegistrationStatus,
@@ -19,6 +19,265 @@ import {
 export type { RegistrationStatus, HomeListingSection };
 
 export const formConfigs: FormConfig[] = [
+  {
+    id: "star-party-october-2026",
+    ...FORM_REGISTRATION_WINDOWS["star-party-october-2026"],
+    requiresPayment: false,
+    skipCapacityCheck: true,
+    title: "Star Party - October 2026",
+    description:
+      "Leave Chennai by carpooling on Saturday 10 October at 1:00 PM. The site is in Andhra Pradesh, about an hour from Sullurpeta. There is no public transport.\n\nWe expect to start back on Sunday around 6:00–7:00 AM and reach Chennai around 10:00–11:00 AM.\n\nShortlisting will be done. Submitting this form does not confirm your place.",
+    feeInfo: "Adults: ₹1800",
+    sheetTab: "October 10 Entries",
+    paymentPricing: {
+      adultFee: 1800,
+      additionalAdultsField: "adultParticipants",
+      bringingField: "bringingParticipants",
+      bringingYesValue: "yes",
+      includeRegistrant: true,
+      amountNote: "Children's rate is not confirmed yet and is not included.",
+    },
+    additionalParticipants: {
+      when: { field: "bringingParticipants", value: "yes" },
+      adultField: "adultParticipants",
+      kidField: "kidParticipants",
+      maxAdults: 1,
+      maxKids: 1,
+      maxTotal: 1,
+      messageBoth: "You can bring only one additional person: either 1 adult or 1 child.",
+      messageNone: "Enter the one additional person you are bringing.",
+      messageTooManyAdults: "You can bring only one additional adult.",
+      messageTooManyKids: "You can bring only one additional child.",
+    },
+    verifiedSuccess: {
+      message:
+        "As a regular, shortlisting is skipped for you. Your UPI reference is recorded and your place is confirmed.",
+    },
+    shortlistSuccess: {
+      message:
+        "Your registration is in for shortlisting. A place is not confirmed until you are shortlisted. We will contact you after shortlisting.",
+    },
+    fields: [
+      {
+        name: "name",
+        label: "Full Name",
+        type: "text",
+        required: true,
+        discourseField: "name",
+        verifiedReadOnly: true,
+        section: "Personal Information",
+      },
+      {
+        name: "email",
+        label: "Email ID",
+        type: "email",
+        required: true,
+        discourseField: "email",
+        verifiedReadOnly: true,
+        section: "Personal Information",
+      },
+      {
+        name: "phone",
+        label: "Contact Number",
+        type: "tel",
+        required: true,
+        discourseField: `user_fields.${PHONE_FIELD_ID}`,
+        verifiedReadOnly: true,
+        saveToProfile: true,
+        section: "Personal Information",
+      },
+      {
+        name: "age",
+        label: "Age Group",
+        type: "select",
+        required: true,
+        discourseField: `user_fields.${AGE_GROUP_FIELD_ID}`,
+        verifiedReadOnly: true,
+        saveToProfile: true,
+        section: "Personal Information",
+        options: [
+          { label: "Below 18", value: "Below 18" },
+          { label: "18 - 25", value: "18-25" },
+          { label: "26 - 35", value: "26-35" },
+          { label: "36 - 50", value: "36-50" },
+          { label: "51 - 65", value: "51-65" },
+          { label: "Above 65", value: "Above 65" },
+        ],
+      },
+      {
+        name: "bringingParticipants",
+        label: "Will you bring one additional person besides yourself?",
+        helperText:
+          "One +1 only: either one adult (12+ years) or one child (under 12). Not both.",
+        type: "radio",
+        required: true,
+        uiOnly: true,
+        fullWidth: true,
+        section: "Event Attendance",
+        options: [
+          { label: "Yes", value: "yes" },
+          { label: "No", value: "no" },
+        ],
+      },
+      {
+        name: "adultParticipants",
+        label: "Number of additional adults (12+ years) joining with you (excluding you)",
+        type: "number",
+        required: true,
+        validation: { min: 0, max: 1 },
+        placeholder: "0 or 1",
+        section: "Event Attendance",
+        showWhen: { field: "bringingParticipants", value: "yes" },
+      },
+      {
+        name: "kidParticipants",
+        label: "Number of additional children (under 12) joining with you (excluding you)",
+        helperText: "The children's rate is not confirmed yet and is not included in the amount due.",
+        type: "number",
+        required: true,
+        validation: { min: 0, max: 1 },
+        placeholder: "0 or 1",
+        section: "Event Attendance",
+        showWhen: { field: "bringingParticipants", value: "yes" },
+      },
+      {
+        name: "equipment",
+        label: "Equipment that you will bring",
+        type: "textarea",
+        fullWidth: true,
+        section: "Equipment Details",
+        placeholder: "List any telescopes, binoculars, or other astronomy equipment you plan to bring...",
+      },
+      {
+        name: "canBringCar",
+        label: "Can you bring a car and offer carpooling to other participants?",
+        helperText:
+          "We leave Chennai by carpool at 1:00 PM on Saturday. There is no public transport to the site.",
+        type: "select",
+        required: true,
+        section: "Car Pooling",
+        options: [
+          { label: "Yes", value: "yes" },
+          { label: "No", value: "no" },
+        ],
+      },
+      {
+        name: "carSeats",
+        label: "Number of seats available for other participants",
+        type: "number",
+        validation: { min: 1, max: 7 },
+        placeholder: "How many people can you accommodate?",
+        section: "Car Pooling",
+        showWhen: { field: "canBringCar", value: "yes" },
+      },
+      {
+        name: "location",
+        label: "Where will you be coming from?",
+        type: "text",
+        required: true,
+        placeholder: "Your locality in the city",
+        section: "Car Pooling",
+      },
+      {
+        name: "emergencyContact",
+        label: "Emergency Contact Person and Number",
+        type: "text",
+        required: true,
+        discourseField: `user_fields.${EMERGENCY_CONTACT_FIELD_ID}`,
+        verifiedReadOnly: true,
+        saveToProfile: true,
+        placeholder: "Name & phone number",
+        section: "Emergency Information",
+      },
+      {
+        name: "bloodGroup",
+        label: "Blood Group",
+        type: "select",
+        required: true,
+        discourseField: `user_fields.${BLOOD_GROUP_FIELD_ID}`,
+        verifiedReadOnly: true,
+        saveToProfile: true,
+        section: "Emergency Information",
+        options: [
+          { label: "A+", value: "A+" },
+          { label: "A-", value: "A-" },
+          { label: "B+", value: "B+" },
+          { label: "B-", value: "B-" },
+          { label: "AB+", value: "AB+" },
+          { label: "AB-", value: "AB-" },
+          { label: "O+", value: "O+" },
+          { label: "O-", value: "O-" },
+        ],
+      },
+      {
+        name: "observationalSkills",
+        label: "Describe your observational skills and experience",
+        type: "textarea",
+        required: true,
+        skipForVerified: true,
+        fullWidth: true,
+        section: "Motivation & Interest",
+        placeholder: "Tell us about your experience with astronomy and observation...",
+      },
+      {
+        name: "eventReason",
+        label: "Why do you want to attend this event?",
+        type: "textarea",
+        required: true,
+        skipForVerified: true,
+        fullWidth: true,
+        section: "Motivation & Interest",
+        placeholder: "Share your motivation for attending...",
+      },
+      {
+        name: "upiReferenceLast4",
+        label: "Last 4 digits of the UPI transaction ID",
+        helperText:
+          "Pay ₹1,800 per adult using the UPI ID or QR code. The children's rate is not confirmed yet and is not included. After paying, enter the last 4 digits of the transaction ID from your UPI app.",
+        copyableValue: "sivasubramanyamicici@ybl",
+        copyableLabel: "UPI ID",
+        helperImageUrl: "/payment/phonepe-qr.png",
+        helperImageAlt: "PhonePe QR code for SIVASUBRAMANYAM A",
+        showPayableAmount: true,
+        onlyForVerified: true,
+        fullWidth: true,
+        type: "text",
+        required: true,
+        validation: {
+          pattern: "^\\d{4}$",
+          min: 4,
+          max: 4,
+          message: "Enter exactly 4 digits from the UPI transaction ID",
+        },
+        placeholder: "4 digits from your UPI app, e.g. 8472",
+        section: "Payment Details",
+      },
+      {
+        name: "additionalQuestions",
+        label: "Anything else that you would like to ask the CAC team?",
+        type: "textarea",
+        fullWidth: true,
+        section: "Additional Questions",
+        placeholder: "Any questions for us?",
+      },
+      {
+        name: "conductCode",
+        label: "I acknowledge that smoking, consuming alcohol and other anti-social behavior are strictly prohibited",
+        type: "checkbox",
+        required: true,
+        fullWidth: true,
+        section: "Disclaimer",
+      },
+      {
+        name: "riskDisclaimer",
+        label: "I understand and agree: Travelling by road involves inherent dangers including but not limited to accidents. CAC and its organizers are not responsible for any accidents or injuries during the event. CAC and organizers are not responsible for any loss or damage to personal property. I agree to take full responsibility.",
+        type: "checkbox",
+        required: true,
+        fullWidth: true,
+        section: "Disclaimer",
+      },
+    ],
+  },
   {
     id: "city-meetup-september-27",
     ...FORM_REGISTRATION_WINDOWS["city-meetup-september-27"],
@@ -1785,6 +2044,24 @@ export const formConfigs: FormConfig[] = [
 
 export function getFormConfig(formId: string): FormConfig | undefined {
   return formConfigs.find((f) => f.id === formId);
+}
+
+/** Success card after submit: confirmed regulars, or the shortlist queue for everyone else. */
+export function getRegistrationSuccessNote(
+  config: FormConfig,
+  opts: { isVerified: boolean; isGuest?: boolean }
+): VerifiedSuccessInfo | undefined {
+  const isGuest = Boolean(opts.isGuest);
+  if (
+    config.verifiedSuccess &&
+    (config.requiresPayment || opts.isVerified || isGuest)
+  ) {
+    return config.verifiedSuccess;
+  }
+  if (!config.requiresPayment && !opts.isVerified && !isGuest) {
+    return config.shortlistSuccess;
+  }
+  return undefined;
 }
 
 export function allowsGuestRegistration(formId: string): boolean {

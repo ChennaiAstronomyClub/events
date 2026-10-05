@@ -92,7 +92,8 @@ export function DynamicField({ field, readOnly, paymentPricing }: DynamicFieldPr
           </p>
           <p className="text-xs text-muted-foreground">
             {payingAdults} adult{payingAdults === 1 ? "" : "s"} ×{" "}
-            {formatInr(paymentPricing.adultFee)}. Kids under 12 are free.
+            {formatInr(paymentPricing.adultFee)}.{" "}
+            {paymentPricing.amountNote ?? "Kids under 12 are free."}
           </p>
         </div>
       )}

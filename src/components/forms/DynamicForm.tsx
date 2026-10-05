@@ -313,9 +313,14 @@ export function DynamicForm({
   const isVerified = isVerifiedUser(user?.groups ?? []);
   const [saveToProfile, setSaveToProfile] = useState(true);
 
-  // 1. Remove fields that verified users don't need to see
+  // Hide skipForVerified fields from regulars, and onlyForVerified fields from everyone else.
   const visibleFields = useMemo(
-    () => config.fields.filter((f) => !(f.skipForVerified && isVerified)),
+    () =>
+      config.fields.filter((f) => {
+        if (f.skipForVerified && isVerified) return false;
+        if (f.onlyForVerified && !isVerified) return false;
+        return true;
+      }),
     [config.fields, isVerified]
   );
 

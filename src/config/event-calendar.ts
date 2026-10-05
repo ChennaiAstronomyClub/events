@@ -12,6 +12,11 @@ export interface EventCalendarMeta {
 }
 
 export const EVENT_CALENDAR_META: Record<string, EventCalendarMeta> = {
+  "star-party-october-2026": {
+    title: "Star Party - October 2026",
+    venue:
+      "Andhra Pradesh, about an hour from Sullurpeta (carpool from Chennai; no public transport)",
+  },
   "city-meetup-september-27": {
     title: "City Meetup Series: Towards Black Hole Movies in Radio Light",
   },

@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from "reac
 import { useAuth } from "@/hooks/useAuth";
 import { useFormSubmit } from "@/hooks/useFormSubmit";
 import { useHoldCountdown } from "@/hooks/useHoldCountdown";
-import { getFormConfig, getRegistrationStatus, isEventOver } from "@/config/forms";
+import { getFormConfig, getRegistrationStatus, getRegistrationSuccessNote, isEventOver } from "@/config/forms";
 import { isVerifiedUser, VERIFIED_GROUP_NAME, PHONE_FIELD_ID } from "@/config/discourse-fields";
 import { CAPACITY_CHECK_SAFETY_MS } from "@/lib/api-timeouts";
 import { formatIstDateTime } from "@/lib/datetime";
@@ -249,15 +249,16 @@ export function FormPage() {
     shouldCheckCapacity && capacityCheck.status === "error";
   const isRegistrationBlocked = capacityCheck.isBlacklisted || submitBlacklisted;
 
-  // Show verifiedSuccess info on the "already registered" card for:
-  //  - paid events → always (all users need the WhatsApp link to join)
-  //  - free events → only verified users (same logic as the /success page)
-  const showVerifiedSuccess = Boolean(
-    config?.verifiedSuccess &&
-      (requiresPayment || isVerifiedUser(user?.groups ?? []) || isGuestMode)
-  );
-  const verifiedSuccessHref = showVerifiedSuccess
-    ? safeExternalHref(config?.verifiedSuccess?.linkUrl)
+  // Paid events and verified regulars see the confirmed note. Unpaid
+  // non-regulars see the shortlist note when the form defines one.
+  const registrationSuccessNote = config
+    ? getRegistrationSuccessNote(config, {
+        isVerified: isVerifiedUser(user?.groups ?? []),
+        isGuest: isGuestMode,
+      })
+    : undefined;
+  const registrationSuccessHref = registrationSuccessNote
+    ? safeExternalHref(registrationSuccessNote.linkUrl)
     : null;
 
   const { expired: holdExpired, formatted: holdCountdown } = useHoldCountdown(
@@ -963,20 +964,25 @@ export function FormPage() {
           {cardMode === "view" && (
             <Card className="w-full max-w-md">
               <CardHeader>
-                <CardTitle>You&apos;re Registered ✓</CardTitle>
+                <CardTitle>
+                  {config.shortlistSuccess &&
+                  registrationSuccessNote === config.shortlistSuccess
+                    ? "Submitted for shortlisting"
+                    : "You're Registered ✓"}
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {showVerifiedSuccess && config.verifiedSuccess && (
+                {registrationSuccessNote && (
                   <div className="rounded-lg border bg-green-50 p-4 space-y-3">
-                    <p className="text-sm text-green-900">{config.verifiedSuccess.message}</p>
-                    {verifiedSuccessHref && (
+                    <p className="text-sm text-green-900">{registrationSuccessNote.message}</p>
+                    {registrationSuccessHref && (
                       <Button asChild className="w-full">
                         <a
-                          href={verifiedSuccessHref}
+                          href={registrationSuccessHref}
                           target="_blank"
                           rel="noopener noreferrer"
                         >
-                          {config.verifiedSuccess.linkLabel || "Open Link"}
+                          {registrationSuccessNote.linkLabel || "Open Link"}
                         </a>
                       </Button>
                     )}
@@ -1193,7 +1199,10 @@ export function FormPage() {
           state: {
             formId: config!.id,
             formTitle: config!.title,
-            verifiedSuccess: config!.verifiedSuccess,
+            verifiedSuccess: getRegistrationSuccessNote(config!, {
+              isVerified: false,
+              isGuest: true,
+            }),
           },
         });
       } else if (result.error === "duplicate") {
@@ -1256,16 +1265,13 @@ export function FormPage() {
       storage.markFormSubmitted(config!.id, user.email, data);
       await saveFieldsToProfile(fieldsToSave);
 
-      const showVerifiedSuccess = Boolean(
-        config!.verifiedSuccess &&
-          (config!.requiresPayment || isVerifiedUser(user.groups))
-      );
-
       navigate("/success", {
         state: {
           formId: config!.id,
           formTitle: config!.title,
-          verifiedSuccess: showVerifiedSuccess ? config!.verifiedSuccess : undefined,
+          verifiedSuccess: getRegistrationSuccessNote(config!, {
+            isVerified: isVerifiedUser(user.groups),
+          }),
         },
       });
     } else if (result.error === "duplicate") {
